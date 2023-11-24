@@ -388,6 +388,13 @@ def parse_args():
         env_var="METRIC_PREFIX",
         help="Metric prefix",
     )
+    parser.add_argument(
+        "--victoria_metrics",
+        type=bool,
+        default=False,
+        env_var="VICTORIA_METRICS",
+        help="Use VictoriaMetrics instead of OpenTSDB, does not return detail data.",
+    )
 
     return parser.parse_args()
 
@@ -442,13 +449,20 @@ async def main():
 
     queue = asyncio.Queue()
 
+    if args.victoria_metrics:
+        victoria_metrics = {
+            "victoria_metrics": True,
+        }
+    else:
+        victoria_metrics = {}
+
     tsdb = TSDBClient(
         args.tsdb_host,
         port=args.tsdb_port,
         host_tag=args.add_host_tag,
         static_tags=args.static_tags,
         uri=args.tsdb_uri,
-        victoria_metrics=True,
+        **victoria_metrics,
     )
 
     try:
