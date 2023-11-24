@@ -7,7 +7,7 @@ from typing import List, Tuple, Dict, Optional, Union
 
 import configargparse
 import yaml
-from aiomqtt import Client, MqttError, Message
+from aiomqtt import Client, MqttError, Message, TLSParameters
 from opentsdb import TSDBClient
 
 # Regex to match MQTT topic structure
@@ -26,7 +26,10 @@ async def subscriber(
     username: Optional[str] = None,
     password: Optional[str] = None,
     port: int = 1883,
+    client_id: Optional[str] = None,
     root_ca: Optional[str] = None,
+    client_cert: Optional[str] = None,
+    client_key: Optional[str] = None,
 ):
     """
     Asynchronously subscribes to MQTT messages and adds them to a queue.
@@ -37,14 +40,26 @@ async def subscriber(
     :param username: Optional username for MQTT broker authentication.
     :param password: Optional password for MQTT broker authentication.
     :param port: Port of the MQTT broker.
+    :param client_id: Optional client ID for MQTT connection.
     :param root_ca: Path to the root CA certificate for SSL/TLS connection.
+    :param client_cert: Path to the client certificate for SSL/TLS connection.
+    :param client_key: Path to the client key for SSL/TLS connection.
     """
+    tls_params = {}
+    if root_ca:
+        tls_params["ca_certs"] = root_ca
+    if client_cert:
+        tls_params["certfile"] = client_cert
+    if client_key:
+        tls_params["keyfile"] = client_key
+
     client_config = {
         "hostname": broker,
         "port": port,
         "username": username,
         "password": password,
-        "tls_params": {"ca_certs": root_ca} if root_ca else None,
+        "client_id": client_id,
+        "tls_params": TLSParameters(**tls_params) if len(tls_params) > 0 else None,
     }
 
     logger.info(f"Connecting to {broker}:{port}")
@@ -286,6 +301,12 @@ def parse_args():
         "--port", type=int, default=1883, env_var="MQTT_PORT", help="MQTT broker port"
     )
     parser.add_argument(
+        "--client_id",
+        type=str,
+        env_var="MQTT_CLIENT_ID",
+        help="MQTT client ID",
+    )
+    parser.add_argument(
         "--topic",
         type=str,
         default="dt/#",
@@ -303,6 +324,18 @@ def parse_args():
         type=str,
         env_var="MQTT_ROOT_CA",
         help="Path to root CA certificate",
+    )
+    parser.add_argument(
+        "--client_cert",
+        type=str,
+        env_var="MQTT_CLIENT_CERT",
+        help="Path to client certificate",
+    )
+    parser.add_argument(
+        "--client_key",
+        type=str,
+        env_var="MQTT_CLIENT_KEY",
+        help="Path to client key",
     )
     parser.add_argument(
         "--tsdb_host",
@@ -395,6 +428,7 @@ def configure_logging(log_level: str):
 
     # Configure the basic logging level for the entire application
     logging.basicConfig(level=numeric_level, force=True)
+    logger.info(f"Logging level set to {log_level}")
 
 
 async def main():
@@ -427,7 +461,10 @@ async def main():
                 args.username,
                 args.password,
                 args.port,
+                args.client_id,
                 args.root_ca,
+                args.client_cert,
+                args.client_key,
             ),
             writer(
                 queue,
