@@ -100,7 +100,7 @@ async def writer(
             try:
                 item = await asyncio.wait_for(
                     queue.get(),
-                    timeout=max(0, int(time_limit - asyncio.get_event_loop().time())),
+                    timeout=max(0, time_limit - asyncio.get_event_loop().time()),
                 )
                 items_to_process.append(item)
                 queue.task_done()
@@ -114,8 +114,7 @@ async def writer(
             logger.debug(f"Processing {len(items_to_process)} items")
             process_items(items_to_process, tsdb, override, metric_prefix)
 
-        remaining_time = time_limit - asyncio.get_event_loop().time()
-        if remaining_time < 0:
+        if (time_limit - asyncio.get_event_loop().time()) < 0.1:
             time_limit = asyncio.get_event_loop().time() + max_time
 
 
