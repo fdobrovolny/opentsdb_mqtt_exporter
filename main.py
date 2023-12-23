@@ -164,6 +164,9 @@ def extract_tags_and_value(
     payload_tags, value = extract_payload_tags_and_value(payload)
     tags = extract_tags(topic, override)
 
+    if tags is None:
+        return {}, None
+
     # Merging payload tags with existing tags
     payload_tags.update(tags)
 
@@ -220,7 +223,7 @@ def extract_payload_tags_and_value(
 def extract_tags(
     topic: str,
     override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
-) -> Dict[str, str]:
+) -> Optional[Dict[str, str]]:
     """
     Extracts and constructs tags from the topic and payload.
 
@@ -231,7 +234,8 @@ def extract_tags(
     override_dict = override.get(topic, {})
     topic_meta = TOPIC_MATCHER.match(topic)
     if not topic_meta:
-        raise ValueError(f"Could not parse topic: {topic}")
+        logger.error(f"Could not parse topic: {topic}")
+        return None
 
     tags = {
         "topic": topic,
