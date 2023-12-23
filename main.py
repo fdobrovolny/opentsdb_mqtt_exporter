@@ -297,36 +297,63 @@ def normalize_value(value: Union[str, int, float]) -> Optional[Union[int, float]
         return -1
 
 
+def generate_tags(
+    keys: List[str],
+    override_dict: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
+    topic_meta: Optional[re.Match],
+) -> Dict[str, str]:
+    """
+    Generate tags from a list of given keys.
+    :param keys: The list of keys to be added.
+    :param override_dict: Dictionary to override the default value.
+    :param topic_meta: Regular Expression match object.
+    :return: Dictionary of tags.
+    """
+    if not topic_meta:
+        return {
+            key: override_dict.get(key, None)
+            for key in keys
+            if override_dict.get(key, None) is not None
+        }
+    else:
+        return {key: override_dict.get(key, topic_meta.group(key)) for key in keys}
+
+
 def extract_tags(
     topic: str,
     override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
 ) -> Optional[Dict[str, str]]:
     """
     Extracts and constructs tags from the topic and payload.
-
     :param topic: MQTT topic string.
     :param override: Dictionary for overriding topic metadata.
     :return: Dictionary of tags.
     """
     override_dict = override.get(topic, {})
     topic_meta = TOPIC_MATCHER.match(topic)
+
+    # construct generated tags
+    generated_tags = generate_tags(
+        ["app", "context", "thing"], override_dict, topic_meta
+    )
+
     if not topic_meta:
-        logger.error(f"Could not parse topic: {topic}")
-        return None
+        property_tag = topic.split("/")[-1]
+    else:
+        property_tag = (
+            f"{topic_meta.group('property')}_{topic_meta.group('sub_value')}"
+            if topic_meta.group("sub_value")
+            else topic_meta.group("property")
+        )
 
     tags = {
         "topic": topic,
-        "app": override_dict.get("app", topic_meta.group("app")),
-        "context": override_dict.get("context", topic_meta.group("context")),
-        "thing": override_dict.get("thing", topic_meta.group("thing")),
-        "property": override_dict.get(
-            "property",
-            topic_meta.group("property")
-            if topic_meta.group("sub_value") is None
-            else f"{topic_meta.group('property')}_{topic_meta.group('sub_value')}",
-        ),
+        "property": override_dict.get("property", property_tag),
+        **generated_tags,
         **extract_context_tags(
-            override_dict.get("context", topic_meta.group("context"))
+            override_dict.get(
+                "context", topic_meta.group("context") if topic_meta else None
+            )
         ),
     }
 
@@ -336,13 +363,16 @@ def extract_tags(
     return tags
 
 
-def extract_context_tags(context: str) -> Dict[str, str]:
+def extract_context_tags(context: Optional[str]) -> Dict[str, str]:
     """
     Extracts context tags from the context string.
 
     :param context: Context string from the topic.
     :return: Dictionary of context tags.
     """
+    if context is None:
+        return {}
+
     context_tags = {}
     if "/" in context:
         context_data = context.split("/")

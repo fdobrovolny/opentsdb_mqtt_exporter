@@ -42,7 +42,9 @@ general, command-line values override environment variables which override confi
 
 ## Topics
 
-The topic has to conform to the following regex:
+### Topics with context
+
+The topic can conform to the following regex:
 
 ```regexp
 ^dt/(?P<app>[\w-]+)/(?P<context>[\w\-/]+)/(?P<thing>[\w-]+)/(?P<property>[\w-]+)$"
@@ -53,6 +55,23 @@ Example:
 * `dt/myapp/room/esp32/temperature`
 * `dt/myapp/room/esp32/humidity`
 * `dt/myapp/myhouse/firstfloor/livingroom/esp32/temperature`
+
+If they do conform, the following tags will be added to the metric:
+
+* `app`
+* `context`
+* `thing`
+* `context_...`
+
+For a topic that does not conform to the regex, you can use the override config file to add these tags.
+
+### Topics without context
+
+```regexp
+^(([\w-]+)/)*(?P<property>[\w-]+)$"
+```
+
+The last part of the topic will be used as the property name.
 
 ## Message format
 

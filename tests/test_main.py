@@ -18,20 +18,21 @@ def get_message(topic, payload, timestamp=None):
 
 
 def single_value_test(
-        message_value,
-        value,
-        topic="dt/myapp/room/esp32/temperature",
-        msg_topic=None,
-        metric_name_suffix="temperature",
-        property_name=None,
-        override=None,
-        extra_tags=None,
-        app="myapp",
-        context="room",
-        thing="esp32",
-        context_0="room",
-        timestamp=None,
-        called_once=True,
+    message_value,
+    value,
+    topic="dt/myapp/room/esp32/temperature",
+    msg_topic=None,
+    metric_name_suffix="temperature",
+    property_name=None,
+    override=None,
+    extra_tags=None,
+    app="myapp",
+    context="room",
+    thing="esp32",
+    context_0="room",
+    timestamp=None,
+    called_once=True,
+    no_context=False,
 ):
     if extra_tags is None:
         extra_tags = {}
@@ -43,19 +44,25 @@ def single_value_test(
         override=override if override is not None else {},
         metric_prefix="mqtt_exp__",
     )
+    if no_context:
+        context_values = {}
+    else:
+        context_values = {
+            "app": app,
+            "context": context,
+            "thing": thing,
+            "context_0": context_0,
+        }
 
     if called_once:
         tsdb_mock.send.assert_called_once_with(
             f"mqtt_exp__{metric_name_suffix}",
             value,
             topic=topic,
-            app=app,
-            context=context,
-            thing=thing,
             property=metric_name_suffix if property_name is None else property_name,
-            context_0=context_0,
             timestamp=int(message[1]) if timestamp is None else timestamp,
             **extra_tags,
+            **context_values,
         )
     else:
         tsdb_mock.send.assert_not_called()
@@ -202,7 +209,64 @@ class TestProcessItems(unittest.TestCase):
     def test_incorrect_topic(self):
         # incorrect topic structure that doesn't match the expected regex
         single_value_test(
-            "25", 25, topic="incorrect/topic/structure", called_once=False
+            "25",
+            25,
+            topic="incorrect/topic/structure",
+            metric_name_suffix="structure",
+            no_context=True,
+        )
+
+    def test_incorrect_topic_override_context(self):
+        # incorrect topic structure that doesn't match the expected regex
+        single_value_test(
+            "25",
+            25,
+            topic="incorrect/topic/structure",
+            metric_name_suffix="structure",
+            no_context=True,
+            override={
+                "incorrect/topic/structure": {
+                    "context": "mainbuilding/first_floor/myoffice",
+                }
+            },
+            extra_tags={
+                "context_0": "mainbuilding",
+                "context_1": "first_floor",
+                "context_2": "myoffice",
+                "context": "mainbuilding/first_floor/myoffice",
+            },
+        )
+
+    def test_incorrect_topic_override_app(self):
+        # incorrect topic structure that doesn't match the expected regex
+        single_value_test(
+            "25",
+            25,
+            topic="incorrect/topic/structure",
+            metric_name_suffix="structure",
+            no_context=True,
+            override={
+                "incorrect/topic/structure": {
+                    "app": "myapp2",
+                }
+            },
+            extra_tags={"app": "myapp2"},
+        )
+
+    def test_incorrect_topic_override_thing(self):
+        # incorrect topic structure that doesn't match the expected regex
+        single_value_test(
+            "25",
+            25,
+            topic="incorrect/topic/structure",
+            metric_name_suffix="structure",
+            no_context=True,
+            override={
+                "incorrect/topic/structure": {
+                    "thing": "esp32_2",
+                }
+            },
+            extra_tags={"thing": "esp32_2"},
         )
 
     def test_incorrect_json_payload_str(self):
@@ -382,7 +446,9 @@ class TestProcessItems(unittest.TestCase):
             metric_name_suffix="temperature_indoor",
             extra_tags={"tag1": "value1", "tag2": "value3"},
             override={
-                "dt/myapp/room/esp32/temperature:indoor": {"extra_tags": {"tag2": "value3"}}
+                "dt/myapp/room/esp32/temperature:indoor": {
+                    "extra_tags": {"tag2": "value3"}
+                }
             },
         )
 
