@@ -151,7 +151,7 @@ def extract_tags_and_value(
     payload: Union[str, bytes],
     timestamp: float,
     override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
-) -> Tuple[Dict[str, str], Optional[Union[int, float]]]:
+) -> Tuple[Dict[str, Union[str, int]], Optional[Union[int, float]]]:
     """
     Extracts tags and value from the topic and payload.
 
@@ -162,16 +162,19 @@ def extract_tags_and_value(
     :return: Tuple containing dictionary of tags and extracted value.
     """
     payload_tags, value = extract_payload_tags_and_value(payload)
-    tags = extract_tags(topic, timestamp, override)
+    tags = extract_tags(topic, override)
 
     # Merging payload tags with existing tags
     payload_tags.update(tags)
+
+    if "timestamp" not in payload_tags:
+        payload_tags["timestamp"] = int(timestamp)
 
     return payload_tags, value
 
 
 def extract_payload_tags_and_value(
-    payload: Union[str, bytes]
+    payload: Union[str, bytes, Dict[str, Union[str, int, float]]]
 ) -> Tuple[Dict[str, str], Optional[Union[int, float]]]:
     """
     Extracts tags and value from the payload if it's JSON, otherwise tries to parse it as a number.
@@ -193,7 +196,7 @@ def extract_payload_tags_and_value(
             # Use remaining payload data as tags
             payload_tags.update(
                 {
-                    k: str(v)
+                    k: str(v) if k != "timestamp" else int(v)
                     for k, v in payload_data.items()
                     if isinstance(v, (str, int, float))
                 }
@@ -216,14 +219,12 @@ def extract_payload_tags_and_value(
 
 def extract_tags(
     topic: str,
-    timestamp: float,
     override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
 ) -> Dict[str, str]:
     """
     Extracts and constructs tags from the topic and payload.
 
     :param topic: MQTT topic string.
-    :param timestamp: Timestamp when the message was received.
     :param override: Dictionary for overriding topic metadata.
     :return: Dictionary of tags.
     """
@@ -237,8 +238,12 @@ def extract_tags(
         "app": override_dict.get("app", topic_meta.group("app")),
         "context": override_dict.get("context", topic_meta.group("context")),
         "thing": override_dict.get("thing", topic_meta.group("thing")),
-        "property": override_dict.get("property", topic_meta.group("property")),
-        "timestamp": timestamp,
+        "property": override_dict.get(
+            "property",
+            topic_meta.group("property")
+            if topic_meta.group("sub_value") is None
+            else f"{topic_meta.group('property')}_{topic_meta.group('sub_value')}",
+        ),
         **extract_context_tags(
             override_dict.get("context", topic_meta.group("context"))
         ),
