@@ -50,7 +50,7 @@ The topic can conform to the following regex:
 ^dt/(?P<app>[\w-]+)/(?P<context>[\w\-/]+)/(?P<thing>[\w-]+)/(?P<property>[\w-]+)$"
 ```
 
-Example:
+Topic examples:
 
 * `dt/myapp/room/esp32/temperature`
 * `dt/myapp/room/esp32/humidity`
@@ -64,6 +64,18 @@ If they do conform, the following tags will be added to the metric:
 * `context_...`
 
 For a topic that does not conform to the regex, you can use the override config file to add these tags.
+
+Example:
+
+`dt/myapp/room/esp32/temperature` will be converted to `mqtt__temperature` with
+tags `app=myapp`, `context=room`, `thing=esp32`, `property=temperature`, `topic=dt/myapp/room/esp32/temperature`.
+
+If there is context with more then one level, additional fields will be added to the tags:
+
+```
+`context_0`, `context_1`, `context_2`, ...
+```
+
 
 ### Topics without context
 
@@ -194,14 +206,4 @@ The metric name will be composed as follows:
 
 ```
 <metric_prefix>(<property>(_<sub_value_name>)?|<override_config['property']>)
-```
-
-Example:
-`dt/myapp/room/esp32/temperature` will be converted to `mqtt__temperature` with
-tags `app=myapp`, `context=room`, `thing=esp32`, `property=temperature`, `topic=dt/myapp/room/esp32/temperature`.
-
-If there is context with more then one level, additional fields will be added to the tags:
-
-```
-`context_0`, `context_1`, `context_2`, ...
 ```
