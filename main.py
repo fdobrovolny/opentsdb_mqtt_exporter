@@ -262,6 +262,8 @@ def extract_context_tags(context: str) -> Dict[str, str]:
         context_data = context.split("/")
         for i, context_part in enumerate(context_data):
             context_tags[f"context_{i}"] = context_part
+    else:
+        context_tags["context_0"] = context
     return context_tags
 
 
