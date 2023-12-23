@@ -264,9 +264,11 @@ def process_items(
                 val_topic, val_payload, timestamp, override, topic_override
             )
 
+            local_metric_prefix = tags.pop("metric_prefix", metric_prefix)
+
             if value is not None:
                 try:
-                    tsdb.send(f"{metric_prefix}{tags['property']}", value, **tags)
+                    tsdb.send(f"{local_metric_prefix}{tags['property']}", value, **tags)
                 except Exception as e:
                     logger.error(f"Error processing item: {e}", exc_info=True)
 
@@ -444,6 +446,9 @@ def extract_tags(
                 if value is not None
             }
         )
+
+    if "metric_prefix" in override_dict:
+        tags["metric_prefix"] = override_dict["metric_prefix"]
 
     return tags
 

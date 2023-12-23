@@ -222,6 +222,7 @@ It can be used to override or set the following:
 * `extra_tags` - a dictionary of extra tags to add to the metric
 * `is_json_multi_value` - if the message is a dictionary with multiple values
   see [Using a dictionary without `values` key](#using-a-dictionary-without-values-key)
+* `metric_prefix` - Override the global metric prefix
 
 The key in the override config is the topic name. The value is a dictionary with the keys above.
 The key can be in a format of `dt/myapp/room/esp32/temperature:indoor` to override the property name for a specific
@@ -235,6 +236,7 @@ dt/myapp/room/esp32/temperature:
   thing: esp8266
   property: tmp
   app: app
+  metric_prefix: my_mqtt__
   extra_tags:
     extra_tag: extra_value
     extra_tag2: extra_value2
@@ -255,7 +257,7 @@ message:
 Output metric:
 
 ```
-mqtt__tmp_indoor{app="app",context="warehouse/room",extra_tag="extra_value",extra_tag2="extra_value2",location="window",property="tmp",thing="esp8266",topic="dt/myapp/room/esp32/temperature:indoor"} 23.5 1589784000
+my_mqtt__tmp_indoor{app="app",context="warehouse/room",extra_tag="extra_value",extra_tag2="extra_value2",location="window",property="tmp",thing="esp8266",topic="dt/myapp/room/esp32/temperature:indoor"} 23.5 1589784000
 ```
 
 ### Example with wildcards:
@@ -346,6 +348,7 @@ message:
 ```
 
 Resulting tags:
+
 * `extra_tag0=extra_value0`
 * `extra_tag1=extra_value1`
 * `extra_tag2=extra_value0`

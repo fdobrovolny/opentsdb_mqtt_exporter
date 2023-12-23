@@ -33,6 +33,8 @@ def single_value_test(
     timestamp=None,
     called_once=True,
     no_context=False,
+    msg_metric_prefix=None,
+    metric_prefix="mqtt_exp__",
 ):
     if extra_tags is None:
         extra_tags = {}
@@ -42,7 +44,7 @@ def single_value_test(
         [message],
         tsdb_mock,
         override=override if override is not None else {},
-        metric_prefix="mqtt_exp__",
+        metric_prefix=metric_prefix if msg_metric_prefix is None else msg_metric_prefix,
     )
     if no_context:
         context_values = {}
@@ -56,7 +58,7 @@ def single_value_test(
 
     if called_once:
         tsdb_mock.send.assert_called_once_with(
-            f"mqtt_exp__{metric_name_suffix}",
+            f"{metric_prefix}{metric_name_suffix}",
             value,
             topic=topic,
             property=metric_name_suffix if property_name is None else property_name,
@@ -601,6 +603,19 @@ class TestProcessItems(unittest.TestCase):
             topic="dt/myapp/room/esp32/temperature:indoor",
             msg_topic="dt/myapp/room/esp32/temperature",
             metric_name_suffix="temperature_indoor",
+        )
+
+    def test_metrix_prefix_override(self):
+        single_value_test(
+            '{"value": 25}',
+            25,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "metric_prefix": "myapp2__",
+                }
+            },
+            msg_metric_prefix="mqtt__",
+            metric_prefix="myapp2__",
         )
 
 
