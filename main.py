@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import time
+from itertools import chain
 from typing import List, Tuple, Dict, Optional, Union
 
 import configargparse
@@ -12,7 +13,7 @@ from opentsdb import TSDBClient
 
 # Regex to match MQTT topic structure
 TOPIC_MATCHER = re.compile(
-    r"^dt/(?P<app>[\w-]+)/(?P<context>[\w\-/]+)/(?P<thing>[\w-]+)/(?P<property>[\w-]+)$"
+    r"^dt/(?P<app>[\w-]+)/(?P<context>[\w\-/]+)/(?P<thing>[\w-]+)/(?P<property>[\w-]+)(:(?P<sub_value>[\w-]+))?$"
 )
 
 # Configure the logger
@@ -136,14 +137,80 @@ def process_items(
         override = {}
 
     for message, timestamp in items:
-        topic, payload = message.topic.value, message.payload
-        tags, value = extract_tags_and_value(topic, payload, timestamp, override)
+        topic, payload = message.topic.value.strip().strip("\x00"), message.payload
 
-        if value is not None:
+        if isinstance(payload, (bytes, bytearray)):
+            payload = payload.decode("utf-8", "ignore")
+
+        # Remove trailing null bytes
+        payload = payload.strip().strip("\x00")
+
+        values = [(topic, payload)]
+
+        if (payload.startswith("{") and payload.endswith("}")) or (
+            payload.startswith("[") and payload.endswith("]")
+        ):
             try:
-                tsdb.send(f"{metric_prefix}{tags['property']}", value, **tags)
-            except Exception as e:
-                logger.error(f"Error processing item: {e}", exc_info=True)
+                payload = json.loads(payload)
+            except ValueError:
+                logger.error(f"Could not parse payload as JSON: {payload}")
+                continue
+
+            if isinstance(payload, dict):
+                if isinstance(payload.get("values", None), dict):
+                    base_tags = {**payload}
+                    base_tags.pop("values")
+
+                    values = [
+                        (
+                            f"{topic}:{k}",
+                            {**base_tags, **v}
+                            if isinstance(v, dict)
+                            else {**base_tags, "value": v},
+                        )
+                        for k, v in payload["values"].items()
+                    ]
+                elif isinstance(payload.get("values", None), list):
+                    base_tags = {**payload}
+                    base_tags.pop("values")
+
+                    values = [
+                        (
+                            topic,
+                            {**base_tags, **v}
+                            if isinstance(v, dict)
+                            else {**base_tags, "value": v},
+                        )
+                        for v in payload["values"]
+                    ]
+                else:
+                    if override.get(topic, {}).get("json_multi_value", None) is True:
+                        values = chain.from_iterable(
+                            [
+                                [(f"{topic}:{k}", v)]
+                                if not isinstance(v, list)
+                                else [(f"{topic}:{k}", iv) for iv in v]
+                                for k, v in payload.items()
+                            ]
+                        )
+                    else:
+                        values = [(topic, payload)]
+            elif isinstance(payload, list):
+                values = [(topic, v) for v in payload]
+            else:
+                logger.error(f"Could not parse payload as JSON: {payload}")
+                continue
+
+        for val_topic, val_payload in values:
+            tags, value = extract_tags_and_value(
+                val_topic, val_payload, timestamp, override
+            )
+
+            if value is not None:
+                try:
+                    tsdb.send(f"{metric_prefix}{tags['property']}", value, **tags)
+                except Exception as e:
+                    logger.error(f"Error processing item: {e}", exc_info=True)
 
 
 def extract_tags_and_value(
@@ -187,20 +254,15 @@ def extract_payload_tags_and_value(
     """
     payload_tags = {}
 
-    if isinstance(payload, (bytes, bytearray)):
-        payload = payload.decode("utf-8")
-
-    payload = payload.strip()
-    if payload.startswith("{") and payload.endswith("}"):
+    if isinstance(payload, dict):
         try:
-            payload_data = json.loads(payload)
-            value = payload_data.pop("value", -1)
+            value = payload.pop("value", -1)
 
             # Use remaining payload data as tags
             payload_tags.update(
                 {
                     k: str(v) if k != "timestamp" else int(v)
-                    for k, v in payload_data.items()
+                    for k, v in payload.items()
                     if isinstance(v, (str, int, float))
                 }
             )

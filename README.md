@@ -60,7 +60,7 @@ Example:
 * float
 * json
 
-The message has to be a JSON object with the following format:
+JSON has to be in the following format:
 
 ```json
 {
@@ -72,19 +72,114 @@ The message has to be a JSON object with the following format:
 
 The `timestamp` field is optional. If not present, the current timestamp will be used.
 The `extra_tag` field is optional. If present, it will be added to the tags of the metric. It can be any key value pair
-as long as the key is a string and the value is a string, number or float.
+as long as the key is a string, and the value is a string, number or float.
 If `value` is not present `-1` will be used.
+
+### Multiple values
+
+#### Using a dictionary
+
+##### Using `values` key
+
+###### Using `values` key with dictionary
+
+```json
+{
+  "values": {
+    "outdoor": {
+      "value": 23.5,
+      "timestamp": 1589782000,
+      "extra_tag": "extra_value"
+    },
+    "indoor": {
+      "value": 24.5,
+      "extra_tag": "extra_value2"
+    }
+  },
+  "timestamp": 1589784000,
+  "extra_tag2": "extra_value3"
+}
+```
+
+In this case the metric name will be `mqtt__temperature_indoor` and the tags will
+be `app=myapp`, `context=room`, `thing=esp32`, `property=temperature`, `topic=dt/myapp/room/esp32/temperature`, `extra_tag=extra_value`, `extra_tag2=extra_value3`, `timestamp=1589782000`.
+You can override properties for each value in the override config using the
+key `dt/myapp/room/esp32/temperature:indoor`.
+
+The order of the tags applied if using values is following:
+
+* properties from main json body
+* properties from the value (`extra_tag` in the example above)
+* properties extracted from the topic name
+* properties from the override config
+
+###### Using `values` key with list
+
+In this case, you can send multiple values for the same property with different tags and some common tags for all
+records:
+
+```json
+{
+  "values": [
+    {
+      "value": 23.5,
+      "timestamp": 1589782000,
+      "extra_tag": "extra_value"
+    },
+    {
+      "value": 24.5,
+      "extra_tag": "extra_value2"
+    }
+  ],
+  "timestamp": 1589784000,
+  "extra_tag2": "extra_value3"
+}
+```
+
+##### Using a dictionary without `values` key
+
+It is also possible to enable the `json_multi_value` in the override config. In this case the override config key will
+be `dt/myapp/room/esp32/temperature`. This enables to send in messages in the following formats:
+
+```json
+{
+  "indoor": 23.5,
+  "outdoor": 24,
+  "underground": {
+    "value": 25.5,
+    "timestamp": 1589782000,
+    "extra_tag": "extra_value"
+  }
+}
+```
+
+#### Using a list
+
+```json
+[
+  {
+    "value": 23.5,
+    "timestamp": 1589782000,
+    "extra_tag": "extra_value"
+  },
+  {
+    "value": 24.5,
+    "extra_tag": "extra_value2"
+  }
+]
+```
 
 ## Metric format
 
 The metric name will be composed as follows:
 
 ```
-<metric_prefix>(<property>|<tags['property']>)
+<metric_prefix>(<property>(_<sub_value_name>)?|<override_config['property']>)
 ```
 
 Example:
-`dt/myapp/room/esp32/temperature` will be converted to `mqtt__temperature` with tags `app=myapp`, `context=room`, `thing=esp32`, `property=temperature`, `topic=dt/myapp/room/esp32/temperature`.
+`dt/myapp/room/esp32/temperature` will be converted to `mqtt__temperature` with
+tags `app=myapp`, `context=room`, `thing=esp32`, `property=temperature`, `topic=dt/myapp/room/esp32/temperature`.
 
 If there is context with more then one level, additional fields will be added to the tags:
 
