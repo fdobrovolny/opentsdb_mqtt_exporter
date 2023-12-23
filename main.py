@@ -10,6 +10,7 @@ import configargparse
 import yaml
 from aiomqtt import Client, MqttError, Message, TLSParameters
 from opentsdb import TSDBClient
+from paho.mqtt.client import topic_matches_sub
 
 # Regex to match MQTT topic structure
 TOPIC_MATCHER = re.compile(
@@ -119,6 +120,61 @@ async def writer(
             time_limit = asyncio.get_event_loop().time() + max_time
 
 
+def sort_subs_by_specificity(topic: str, subs: List[str]) -> List[str]:
+    """
+    Sorts and filters a list of subscriptions by specificity.
+
+    We try to guess some heuristic based on the string length and the position of the wildcards.
+
+    :param topic: Topic string.
+    :param subs: List of subscriptions.
+    :return: List of subscriptions sorted by specificity.
+    """
+    matches = []
+
+    for sub in subs:
+        if topic_matches_sub(sub, topic):
+            # Factor in the position of the wildcards
+            specificity = sum(
+                [
+                    (1 if c not in ["+", "#"] else 0.6 if c == "+" else 0.5)
+                    * (index + 1)
+                    for index, c in enumerate(sub)
+                ]
+            )
+            matches.append((specificity, sub))
+    matches.sort(key=lambda x: x[0])
+
+    return [m[1] for m in matches]
+
+
+def get_topic_override_config(
+    topic: str, override: Dict[str, Dict[str, Union[str, Dict[str, str]]]]
+):
+    """
+    Gets the override configuration for a topic.
+
+    :param topic: Topic string.
+    :param override: Dictionary for overriding topic metadata.
+    :return: Override configuration for the topic.
+    """
+    subs = list(override.keys())
+    subs = sort_subs_by_specificity(topic, subs)
+
+    output_override = {}
+    output_extra_tags = {}
+
+    for sub in subs:
+        sub_override = {**override.get(sub, {})}
+        output_extra_tags.update(sub_override.pop("extra_tags", {}))
+        output_override.update(sub_override)
+
+    if len(output_extra_tags) > 0:
+        output_override["extra_tags"] = output_extra_tags
+
+    return output_override
+
+
 def process_items(
     items: List[Tuple[Message, float]],
     tsdb: TSDBClient,
@@ -146,6 +202,8 @@ def process_items(
         payload = payload.strip().strip("\x00")
 
         values = [(topic, payload)]
+
+        topic_override = get_topic_override_config(topic, override)
 
         if (payload.startswith("{") and payload.endswith("}")) or (
             payload.startswith("[") and payload.endswith("]")
@@ -203,7 +261,7 @@ def process_items(
 
         for val_topic, val_payload in values:
             tags, value = extract_tags_and_value(
-                val_topic, val_payload, timestamp, override
+                val_topic, val_payload, timestamp, override, topic_override
             )
 
             if value is not None:
@@ -218,6 +276,7 @@ def extract_tags_and_value(
     payload: Union[str, bytes],
     timestamp: float,
     override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
+    topic_override: Dict[str, Union[str, Dict[str, str]]],
 ) -> Tuple[Dict[str, Union[str, int]], Optional[Union[int, float]]]:
     """
     Extracts tags and value from the topic and payload.
@@ -226,10 +285,11 @@ def extract_tags_and_value(
     :param payload: MQTT message payload.
     :param timestamp: Timestamp when the message was received.
     :param override: Dictionary for overriding topic metadata.
+    :param topic_override: Override configuration for the topic.
     :return: Tuple containing dictionary of tags and extracted value.
     """
     payload_tags, value = extract_payload_tags_and_value(payload)
-    tags = extract_tags(topic, override)
+    tags = extract_tags(topic, override, topic_override)
 
     if tags is None:
         return {}, None
@@ -316,20 +376,38 @@ def generate_tags(
             if override_dict.get(key, None) is not None
         }
     else:
-        return {key: override_dict.get(key, topic_meta.group(key)) for key in keys}
+        return {
+            key: (
+                override_dict.get(key)
+                if override_dict.get(key, None) is not None
+                else topic_meta.group(key)
+            )
+            for key in keys
+        }
 
 
 def extract_tags(
     topic: str,
     override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
+    topic_override: Union[str, Dict[str, str]],
 ) -> Optional[Dict[str, str]]:
     """
     Extracts and constructs tags from the topic and payload.
     :param topic: MQTT topic string.
     :param override: Dictionary for overriding topic metadata.
+    :param topic_override: Override configuration for the topic.
     :return: Dictionary of tags.
     """
-    override_dict = override.get(topic, {})
+    if ":" in topic:
+        override_dict = {**topic_override, **override.get(topic, {})}
+        extra_tags = {
+            **topic_override.get("extra_tags", {}),
+            **override.get(topic, {}).get("extra_tags", {}),
+        }
+        if len(extra_tags) > 0:
+            override_dict["extra_tags"] = extra_tags
+    else:
+        override_dict = topic_override
     topic_meta = TOPIC_MATCHER.match(topic)
 
     # construct generated tags
@@ -359,7 +437,13 @@ def extract_tags(
     }
 
     if "extra_tags" in override_dict:
-        tags.update(override_dict["extra_tags"])
+        tags.update(
+            {
+                key: value
+                for key, value in override_dict["extra_tags"].items()
+                if value is not None
+            }
+        )
 
     return tags
 

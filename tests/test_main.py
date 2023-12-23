@@ -463,6 +463,146 @@ class TestProcessItems(unittest.TestCase):
             },
         )
 
+    def test_multi_subscription_override_app(self):
+        single_value_test(
+            '{"value": 25}',
+            25,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "app": "myapp2",
+                },
+                "dt/myapp/room/esp32/+": {
+                    "app": "myapp3",
+                },
+            },
+            app="myapp2",
+        )
+
+    def test_multi_subscription_override_tags(self):
+        single_value_test(
+            '{"value": 25, "tag0": "value1", "tag1": "value1"}',
+            25,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "extra_tags": {"tag1": "value2", "tag2": "value2"},
+                },
+                "dt/myapp/room/esp32/+": {
+                    "extra_tags": {
+                        "tag1": "value3",
+                        "tag2": "value3",
+                        "tag3": "value3",
+                    },
+                },
+                "dt/myapp/room/esp32/#": {
+                    "extra_tags": {
+                        "tag1": "value4",
+                        "tag2": "value4",
+                        "tag3": "value4",
+                        "tag4": "value4",
+                    },
+                },
+                "dt/myapp/+/esp32/#": {
+                    "extra_tags": {
+                        "tag1": "value5",
+                        "tag2": "value5",
+                        "tag3": "value5",
+                        "tag4": "value5",
+                        "tag5": "value5",
+                    },
+                },
+                "dt/#": {
+                    "extra_tags": {
+                        "tag1": "value6",
+                        "tag2": "value6",
+                        "tag3": "value6",
+                        "tag4": "value6",
+                        "tag5": "value6",
+                        "tag6": "value6",
+                    },
+                },
+            },
+            extra_tags={
+                "tag0": "value1",
+                "tag1": "value2",
+                "tag2": "value2",
+                "tag3": "value3",
+                "tag4": "value4",
+                "tag5": "value5",
+                "tag6": "value6",
+            },
+        )
+
+    def test_multi_subscription_override_tags_multivalue(self):
+        single_value_test(
+            message_value='{"values": {"indoor": {"value": 25, "tag0": "value0"}}, "tag0": "value1","tag1": "value1", "tag2": "value1"}',
+            value=25,
+            override={
+                "dt/myapp/room/esp32/temperature:indoor": {
+                    "extra_tags": {"tag2": "value2"},
+                },
+                "dt/myapp/room/esp32/temperature": {
+                    "extra_tags": {"tag2": "value3", "tag3": "value3"},
+                },
+                "dt/myapp/room/esp32/+": {
+                    "extra_tags": {
+                        "tag2": "value4",
+                        "tag3": "value4",
+                        "tag4": "value4",
+                    },
+                },
+                "dt/myapp/room/esp32/#": {
+                    "extra_tags": {
+                        "tag2": "value5",
+                        "tag3": "value5",
+                        "tag4": "value5",
+                        "tag5": "value5",
+                    },
+                },
+                "dt/#": {
+                    "extra_tags": {
+                        "tag2": "value6",
+                        "tag3": "value6",
+                        "tag4": "value6",
+                        "tag5": "value6",
+                        "tag6": "value6",
+                    },
+                },
+            },
+            extra_tags={
+                "tag0": "value0",
+                "tag1": "value1",
+                "tag2": "value2",
+                "tag3": "value3",
+                "tag4": "value4",
+                "tag5": "value5",
+                "tag6": "value6",
+            },
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_multi_subscription_override_value_removal(self):
+        single_value_test(
+            message_value='{"values": {"indoor": {"value": 25, "tag0": "value0"}}, "tag0": "value1","tag1": "value1"}',
+            value=25,
+            override={
+                "dt/myapp/room/esp32/temperature:indoor": {
+                    "extra_tags": {"tag2": None},
+                },
+                "dt/myapp/room/esp32/temperature": {
+                    "extra_tags": {"tag2": "value3"},
+                },
+            },
+            extra_tags={
+                "tag0": "value0",
+                "tag1": "value1",
+            },
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

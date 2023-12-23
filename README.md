@@ -76,7 +76,6 @@ If there is context with more then one level, additional fields will be added to
 `context_0`, `context_1`, `context_2`, ...
 ```
 
-
 ### Topics without context
 
 ```regexp
@@ -207,3 +206,146 @@ The metric name will be composed as follows:
 ```
 <metric_prefix>(<property>(_<sub_value_name>)?|<override_config['property']>)
 ```
+
+## Override config
+
+The override config is a YAML file that can be used to override the default configuration.
+It can be used to override or set the following:
+
+* `context` - Overrides the context from the topic. See [Metric format](#metric-format), useful
+  for [Topics without context](#topics-without-context).
+* `thing` - Overrides the thing name from the topic. See [Metric format](#metric-format), useful
+  for [Topics without context](#topics-without-context).
+* `property` - Overrides the property name from the topic. See [Metric format](#metric-format), useful
+  for [Topics without context](#topics-without-context).
+* `app` - the app name
+* `extra_tags` - a dictionary of extra tags to add to the metric
+* `is_json_multi_value` - if the message is a dictionary with multiple values
+  see [Using a dictionary without `values` key](#using-a-dictionary-without-values-key)
+
+The key in the override config is the topic name. The value is a dictionary with the keys above.
+The key can be in a format of `dt/myapp/room/esp32/temperature:indoor` to override the property name for a specific
+value in multivalued messages. The key can also be in a format of MQTT subscription topic with `#` or `+` wildcards.
+
+### Basic Example:
+
+```yaml
+dt/myapp/room/esp32/temperature:
+  context: warehouse/room
+  thing: esp8266
+  property: tmp
+  app: app
+  extra_tags:
+    extra_tag: extra_value
+    extra_tag2: extra_value2
+  is_json_multi_value: true
+```
+
+message:
+
+```json
+{
+  "indoor": {
+    "value": 23.5,
+    "location": "window"
+  }
+}
+```
+
+Output metric:
+
+```
+mqtt__tmp_indoor{app="app",context="warehouse/room",extra_tag="extra_value",extra_tag2="extra_value2",location="window",property="tmp",thing="esp8266",topic="dt/myapp/room/esp32/temperature:indoor"} 23.5 1589784000
+```
+
+### Example with wildcards:
+
+```yaml
+"dt/myapp/room/esp32/temperature:indoor":
+  extra_tags:
+    extra_tag2: extra_value2
+dt/myapp/room/esp32/temperature:
+  extra_tags:
+    extra_tag2: extra_value3
+    extra_tag3: extra_value3
+dt/myapp/room/esp32/+:
+  extra_tags:
+    extra_tag2: extra_value4
+    extra_tag3: extra_value4
+    extra_tag4: extra_value4
+dt/myapp/room/esp32/#:
+  extra_tags:
+    extra_tag2: extra_value5
+    extra_tag3: extra_value5
+    extra_tag4: extra_value5
+    extra_tag5: extra_value5
+dt/#:
+  extra_tags:
+    extra_tag2: extra_value6
+    extra_tag3: extra_value6
+    extra_tag4: extra_value6
+    extra_tag5: extra_value6
+    extra_tag6: extra_value6
+```
+
+message:
+
+```json
+{
+  "values": {
+    "indoor": {
+      "value": 23.5,
+      "extra_tag0": "extra_value0",
+      "extra_tag2": "extra_value0"
+    }
+  },
+  "extra_tag0": "extra_value1",
+  "extra_tag1": "extra_value1"
+}
+```
+
+Resulting tags:
+
+* `extra_tag0=extra_value0`
+* `extra_tag1=extra_value1`
+* `extra_tag2=extra_value2`
+* `extra_tag3=extra_value3`
+* `extra_tag4=extra_value4`
+* `extra_tag5=extra_value5`
+* `extra_tag6=extra_value6`
+
+### Example with wildcards and value removal
+
+Sometimes you want to hardcode a value for a specific topic, but you don't want to hardcode it for all topics that
+match. In this case you can use `null` value in the override config. This will remove the value from the override and
+will retain the value obtained from the message.
+
+```yaml
+dt/myapp/room/esp32/temperature:indoor:
+  extra_tags:
+    extra_tag2: null
+dt/myapp/room/esp32/temperature:
+  extra_tags:
+    extra_tag2: extra_value3
+```
+
+message:
+
+```json
+{
+  "values": {
+    "indoor": {
+      "value": 23.5,
+      "extra_tag0": "extra_value0",
+      "extra_tag2": "extra_value0"
+    }
+  },
+  "extra_tag0": "extra_value1",
+  "extra_tag1": "extra_value1"
+}
+```
+
+Resulting tags:
+* `extra_tag0=extra_value0`
+* `extra_tag1=extra_value1`
+* `extra_tag2=extra_value0`
