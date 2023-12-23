@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from itertools import chain
-from typing import List, Tuple, Dict, Optional, Union
+from typing import List, Tuple, Dict, Optional, Union, Any
 
 import configargparse
 import yaml
@@ -68,7 +68,8 @@ async def subscriber(
 
     async with Client(**client_config) as client:
         async with client.messages() as messages:
-            await client.subscribe(topic)
+            for topic in topic.split(","):
+                await client.subscribe(topic)
             logger.info(f"Subscribed to {topic}")
             async for message in messages:
                 logger.debug(f"Received message: {message.topic} {message.payload}")
@@ -518,7 +519,8 @@ def parse_args():
         type=str,
         default="dt/#",
         env_var="MQTT_TOPIC",
-        help="MQTT topic to subscribe",
+        help="MQTT topics to subscribe to, `,` coma separated list, you can "
+        "use wildcards. Default: dt/#",
     )
     parser.add_argument(
         "--username", type=str, env_var="MQTT_USERNAME", help="MQTT username"
@@ -580,7 +582,7 @@ def parse_args():
         type=bool,
         default=False,
         env_var="ADD_HOST_TAG",
-        help="Add host tag to TSDB data",
+        help="Add host tag to TSDB data, bool value, default: False",
     )
     parser.add_argument(
         "--static_tags",
@@ -601,7 +603,7 @@ def parse_args():
         type=bool,
         default=False,
         env_var="VICTORIA_METRICS",
-        help="Use VictoriaMetrics instead of OpenTSDB, does not return detail data.",
+        help="Use VictoriaMetrics instead of OpenTSDB, does not return detail data. bool value, default: False",
     )
 
     return parser.parse_args()

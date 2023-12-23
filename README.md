@@ -3,9 +3,9 @@
 This is a simple Python script that subscribes to an MQTT topic and sends the received messages to an OpenTSDB server.
 
 ```bash
-usage: main.py [-h] [-c CONFIG] [--max_send_messages MAX_SEND_MESSAGES] [--max_time MAX_TIME] --broker BROKER [--port PORT] [--topic TOPIC] [--username USERNAME] [--password PASSWORD] [--root_ca ROOT_CA]
-               [--tsdb_host TSDB_HOST] [--tsdb_port TSDB_PORT] [--tsdb_uri TSDB_URI] [--override_config OVERRIDE_CONFIG] [--log_level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--add_host_tag ADD_HOST_TAG]
-               [--static_tags STATIC_TAGS] [--metric_prefix METRIC_PREFIX]
+usage: main.py [-h] [-c CONFIG] [--max_send_messages MAX_SEND_MESSAGES] [--max_time MAX_TIME] --broker BROKER [--port PORT] [--client_id CLIENT_ID] [--topic TOPIC] [--username USERNAME] [--password PASSWORD]
+               [--root_ca ROOT_CA] [--client_cert CLIENT_CERT] [--client_key CLIENT_KEY] [--tsdb_host TSDB_HOST] [--tsdb_port TSDB_PORT] [--tsdb_uri TSDB_URI] [--override_config OVERRIDE_CONFIG]
+               [--log_level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--add_host_tag ADD_HOST_TAG] [--static_tags STATIC_TAGS] [--metric_prefix METRIC_PREFIX] [--victoria_metrics VICTORIA_METRICS]
 
 options:
   -h, --help            show this help message and exit
@@ -16,10 +16,16 @@ options:
   --max_time MAX_TIME   Maximum time interval for sending messages [env var: MAX_TIME]
   --broker BROKER       MQTT broker address [env var: MQTT_BROKER]
   --port PORT           MQTT broker port [env var: MQTT_PORT]
-  --topic TOPIC         MQTT topic to subscribe [env var: MQTT_TOPIC]
+  --client_id CLIENT_ID
+                        MQTT client ID [env var: MQTT_CLIENT_ID]
+  --topic TOPIC         MQTT topics to subscribe to, `,` coma separated list, you can use wildcards. Default: dt/# [env var: MQTT_TOPIC]
   --username USERNAME   MQTT username [env var: MQTT_USERNAME]
   --password PASSWORD   MQTT password [env var: MQTT_PASSWORD]
   --root_ca ROOT_CA     Path to root CA certificate [env var: MQTT_ROOT_CA]
+  --client_cert CLIENT_CERT
+                        Path to client certificate [env var: MQTT_CLIENT_CERT]
+  --client_key CLIENT_KEY
+                        Path to client key [env var: MQTT_CLIENT_KEY]
   --tsdb_host TSDB_HOST
                         OpenTSDB host [env var: OPEN_TSDB_HOST]
   --tsdb_port TSDB_PORT
@@ -30,11 +36,13 @@ options:
   --log_level {DEBUG,INFO,WARNING,ERROR,CRITICAL}
                         Set the logging level [env var: LOG_LEVEL]
   --add_host_tag ADD_HOST_TAG
-                        Add host tag to TSDB data [env var: ADD_HOST_TAG]
+                        Add host tag to TSDB data, bool value, default: False [env var: ADD_HOST_TAG]
   --static_tags STATIC_TAGS
                         Static tags for TSDB in JSON format [env var: STATIC_TAGS]
   --metric_prefix METRIC_PREFIX
                         Metric prefix [env var: METRIC_PREFIX]
+  --victoria_metrics VICTORIA_METRICS
+                        Use VictoriaMetrics instead of OpenTSDB, does not return detail data. bool value, default: False [env var: VICTORIA_METRICS]
 
 Args that start with '--' can also be set in a config file (config.yaml or config.yml or specified via -c). Config file syntax allows: key=value, flag=true, stuff=[a,b,c] (for details, see syntax at https://goo.gl/R74nmi). In
 general, command-line values override environment variables which override config file values which override defaults.
