@@ -269,6 +269,17 @@ class TestProcessItems(unittest.TestCase):
             extra_tags={"thing": "esp32_2"},
         )
 
+    def test_incorrect_topic_values_dict(self):
+        # incorrect topic structure that doesn't match the expected regex
+        single_value_test(
+            '{"values": {"indoor": {"value": 25}}}',
+            25,
+            topic="incorrect/topic/structure:indoor",
+            msg_topic="incorrect/topic/structure",
+            metric_name_suffix="structure",
+            no_context=True,
+        )
+
     def test_incorrect_json_payload_str(self):
         # 'value' field in json payload as string instead of number
         single_value_test(

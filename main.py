@@ -338,7 +338,8 @@ def extract_tags(
     )
 
     if not topic_meta:
-        property_tag = topic.split("/")[-1]
+        raw_topic = topic if ":" not in topic else topic.split(":")[0]
+        property_tag = raw_topic.split("/")[-1]
     else:
         property_tag = (
             f"{topic_meta.group('property')}_{topic_meta.group('sub_value')}"
