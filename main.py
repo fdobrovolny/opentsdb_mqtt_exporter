@@ -205,19 +205,34 @@ def extract_payload_tags_and_value(
                 }
             )
 
-            return payload_tags, value
+            return payload_tags, normalize_value(value)
         except ValueError:
             logger.error(f"Could not parse payload as JSON: {payload}")
             return {}, None
     else:
+        return payload_tags, normalize_value(payload)
+
+
+def normalize_value(value: Union[str, int, float]) -> Optional[Union[int, float]]:
+    """
+    Tries to parse the value as a number.
+
+    :param value: MQTT message payload or JSON value.
+    :return: Parsed value or None if it could not be parsed.
+    """
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        return int(value)
+    except ValueError:
         try:
-            return {}, int(payload)
+            return float(value)
         except ValueError:
-            try:
-                return {}, float(payload)
-            except ValueError:
-                logger.error(f"Could not parse payload as number: {payload}")
-                return {}, None
+            logger.error(f"Could not parse payload as number: {value}")
+            return -1
+    except TypeError:
+        logger.error(f"Could not parse payload as number: {value}")
+        return -1
 
 
 def extract_tags(
