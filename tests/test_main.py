@@ -618,6 +618,23 @@ class TestProcessItems(unittest.TestCase):
             metric_prefix="myapp2__",
         )
 
+    def test_metric_with_spaces(self):
+        single_value_test(
+            '{"value": 25}',
+            25,
+            topic="dt/myapp/room/esp32/temperature with spaces",
+            metric_name_suffix="temperature_with_spaces",
+        )
+
+    def test_metric_sub_value_with_spaces(self):
+        single_value_test(
+            '{"values": {"indoor sensor": {"value": 25}}}',
+            25,
+            topic="dt/myapp/room/esp32/temperature:indoor sensor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor_sensor",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,7 @@ from paho.mqtt.client import topic_matches_sub
 
 # Regex to match MQTT topic structure
 TOPIC_MATCHER = re.compile(
-    r"^dt/(?P<app>[\w-]+)/(?P<context>[\w\-/]+)/(?P<thing>[\w-]+)/(?P<property>[\w-]+)(:(?P<sub_value>[\w-]+))?$"
+    r"^dt/(?P<app>[ \w-]+)/(?P<context>[ \w\-/]+)/(?P<thing>[ \w-]+)/(?P<property>[ \w-]+)(:(?P<sub_value>[ \w-]+))?$"
 )
 
 # Configure the logger
@@ -420,13 +420,13 @@ def extract_tags(
 
     if not topic_meta:
         raw_topic = topic if ":" not in topic else topic.split(":")[0]
-        property_tag = raw_topic.split("/")[-1]
+        property_tag = raw_topic.split("/")[-1].replace(" ", "_")
     else:
         property_tag = (
             f"{topic_meta.group('property')}_{topic_meta.group('sub_value')}"
             if topic_meta.group("sub_value")
             else topic_meta.group("property")
-        )
+        ).replace(" ", "_")
 
     tags = {
         "topic": topic,

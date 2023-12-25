@@ -55,7 +55,7 @@ general, command-line values override environment variables which override confi
 The topic can conform to the following regex:
 
 ```regexp
-^dt/(?P<app>[\w-]+)/(?P<context>[\w\-/]+)/(?P<thing>[\w-]+)/(?P<property>[\w-]+)$"
+^dt/(?P<app>[ \w-]+)/(?P<context>[ \w\-/]+)/(?P<thing>[ \w-]+)/(?P<property>[ \w-]+)$"
 ```
 
 Topic examples:
@@ -87,7 +87,7 @@ If there is context with more then one level, additional fields will be added to
 ### Topics without context
 
 ```regexp
-^(([\w-]+)/)*(?P<property>[\w-]+)$"
+^(([ \w-]+)/)*(?P<property>[ \w-]+)$"
 ```
 
 The last part of the topic will be used as the property name.
