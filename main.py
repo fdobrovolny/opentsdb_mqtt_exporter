@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from itertools import chain
-from typing import List, Tuple, Dict, Optional, Union
+from typing import List, Tuple, Dict, Optional, Union, Set
 
 import configargparse
 import yaml
@@ -84,6 +84,7 @@ async def writer(
     max_send_messages: int = 100,
     metric_prefix: str = "mqtt__",
     max_str_len: int = 128,
+    tags_exclude: Set[str] = {"metric_prefix"},
 ):
     """
     Asynchronously processes messages from a queue and sends them to TSDB.
@@ -94,6 +95,8 @@ async def writer(
     :param max_time: Maximum time interval for sending messages.
     :param max_send_messages: Maximum number of messages to process in one batch.
     :param metric_prefix: Metric prefix.
+    :param max_str_len: Maximum string length for TSDB tags.
+    :param tags_exclude: Tags to be removed from TSDB data.
     """
     time_limit = asyncio.get_event_loop().time() + max_time
 
@@ -116,7 +119,14 @@ async def writer(
 
         if len(items_to_process) > 0:
             logger.debug(f"Processing {len(items_to_process)} items")
-            process_items(items_to_process, tsdb, override, metric_prefix, max_str_len)
+            process_items(
+                items_to_process,
+                tsdb,
+                override,
+                metric_prefix,
+                max_str_len,
+                tags_exclude,
+            )
 
         if (time_limit - asyncio.get_event_loop().time()) < 0.1:
             time_limit = asyncio.get_event_loop().time() + max_time
@@ -183,6 +193,7 @@ def process_items(
     override: Optional[Dict[str, Dict[str, Union[str, Dict[str, str]]]]] = None,
     metric_prefix: str = "mqtt__",
     max_str_len: int = 128,
+    tags_exclude: Set[str] = {"metric_prefix"},
 ):
     """
     Processes a batch of MQTT messages and sends data to TSDB.
@@ -191,6 +202,8 @@ def process_items(
     :param tsdb: TSDBClient instance to send data to TSDB.
     :param override: Dictionary for overriding topic metadata.
     :param metric_prefix: Metric prefix.
+    :param max_str_len: Maximum string length for TSDB tags.
+    :param tags_exclude: Tags to be removed from TSDB data.
     """
     if override is None:
         override = {}
@@ -270,7 +283,12 @@ def process_items(
 
         for val_topic, val_payload in values:
             tags, value = extract_tags_and_value(
-                val_topic, val_payload, timestamp, override, topic_override
+                val_topic,
+                val_payload,
+                timestamp,
+                override,
+                topic_override,
+                tags_exclude,
             )
 
             local_metric_prefix = tags.pop("metric_prefix", metric_prefix)
@@ -313,6 +331,7 @@ def extract_tags_and_value(
     timestamp: float,
     override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
     topic_override: Dict[str, Union[str, Dict[str, str]]],
+    tags_exclude: Set[str],
 ) -> Tuple[Dict[str, Union[str, int]], Optional[Union[int, float]]]:
     """
     Extracts tags and value from the topic and payload.
@@ -322,9 +341,10 @@ def extract_tags_and_value(
     :param timestamp: Timestamp when the message was received.
     :param override: Dictionary for overriding topic metadata.
     :param topic_override: Override configuration for the topic.
+    :param tags_exclude: Tags to be removed from TSDB data.
     :return: Tuple containing dictionary of tags and extracted value.
     """
-    payload_tags, value = extract_payload_tags_and_value(payload)
+    payload_tags, value = extract_payload_tags_and_value(payload, tags_exclude)
     tags = extract_tags(topic, override, topic_override)
 
     # Merging payload tags with existing tags
@@ -360,12 +380,14 @@ def extract_tags_and_value(
 
 
 def extract_payload_tags_and_value(
-    payload: Union[str, bytes, Dict[str, Union[str, int, float]]]
+    payload: Union[str, bytes, Dict[str, Union[str, int, float]]],
+    tags_exclude: Set[str],
 ) -> Tuple[Dict[str, str], Optional[Union[int, float, str]]]:
     """
     Extracts tags and value from the payload if it's JSON, otherwise tries to parse it as a number.
 
     :param payload: MQTT message payload.
+    :param tags_exclude: Tags to be removed from TSDB data.
     :return: Tuple containing dictionary of payload tags and extracted value.
     """
     payload_tags = {}
@@ -380,6 +402,7 @@ def extract_payload_tags_and_value(
                     k: str(v) if k != "timestamp" else v
                     for k, v in payload.items()
                     if isinstance(v, (str, int, float))
+                    and k.lower() not in tags_exclude
                 }
             )
 
@@ -669,6 +692,13 @@ def parse_args():
         env_var="MAX_STR_LEN",
         help="Maximum string length for TSDB tags, default: 128",
     )
+    parser.add_argument(
+        "--tags_exclude",
+        type=str,
+        default="metric_prefix",
+        env_var="TAGS_EXCLUDE",
+        help="Tags to be removed from TSDB data, comma separated list, case insensitive default: metric_prefix",
+    )
 
     return parser.parse_args()
 
@@ -761,6 +791,7 @@ async def main():
                 args.max_send_messages,
                 args.metric_prefix,
                 args.max_str_len,
+                set(args.tags_exclude.split(",")),
             ),
         )
     except MqttError as e:

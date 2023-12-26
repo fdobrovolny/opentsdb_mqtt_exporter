@@ -37,6 +37,7 @@ def single_value_test(
     msg_metric_prefix=None,
     metric_prefix="mqtt_exp__",
     max_str_len=128,
+    tags_exclude=None,
 ):
     if extra_tags is None:
         extra_tags = {}
@@ -50,6 +51,7 @@ def single_value_test(
         override=override if override is not None else {},
         metric_prefix=metric_prefix if msg_metric_prefix is None else msg_metric_prefix,
         max_str_len=max_str_len,
+        tags_exclude={"metric_prefix"} if tags_exclude is None else tags_exclude,
     )
     if no_context:
         context_values = {}
@@ -704,6 +706,27 @@ class TestProcessItems(unittest.TestCase):
             topic="dt/myapp/room/esp32/temperature:indoor sensor",
             msg_topic="dt/myapp/room/esp32/temperature",
             metric_name_suffix="temperature_indoor_sensor",
+        )
+
+    def test_metric_prefix_in_message(self):
+        single_value_test(
+            '{"value": 25, "metric_prefix": "myapp2__"}',
+            25,
+        )
+
+    def test_metric_prefix_in_message_without_exclude(self):
+        single_value_test(
+            '{"value": 25, "metric_prefix": "myapp2__"}',
+            25,
+            tags_exclude={},
+            metric_prefix="myapp2__",
+        )
+
+    def test_tags_exclude(self):
+        single_value_test(
+            '{"value": 25, "extra_tag": "foo"}',
+            25,
+            tags_exclude={"extra_tag"},
         )
 
 
