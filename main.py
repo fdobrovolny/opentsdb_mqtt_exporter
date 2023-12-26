@@ -332,6 +332,29 @@ def extract_tags_and_value(
 
     if "timestamp" not in payload_tags:
         payload_tags["timestamp"] = int(timestamp)
+    else:
+        if isinstance(payload_tags["timestamp"], str):
+            try:
+                payload_tags["timestamp"] = int(payload_tags["timestamp"])
+            except ValueError:
+                try:
+                    payload_tags["timestamp"] = float(payload_tags["timestamp"])
+                except ValueError:
+                    logger.warning(
+                        f"Could not parse timestamp as number: {payload_tags['timestamp']}"
+                    )
+                    payload_tags["timestamp"] = int(timestamp)
+            except TypeError as e:
+                logger.warning(
+                    f"Could not parse timestamp as number {e}: {payload_tags['timestamp']}",
+                    exc_info=True,
+                )
+                payload_tags["timestamp"] = int(timestamp)
+        elif not isinstance(payload_tags["timestamp"], (int, float)):
+            logger.warning(
+                f"Could not parse timestamp as number: {payload_tags['timestamp']}"
+            )
+            payload_tags["timestamp"] = int(timestamp)
 
     return payload_tags, value
 
@@ -354,7 +377,7 @@ def extract_payload_tags_and_value(
             # Use remaining payload data as tags
             payload_tags.update(
                 {
-                    k: str(v) if k != "timestamp" else int(v)
+                    k: str(v) if k != "timestamp" else v
                     for k, v in payload.items()
                     if isinstance(v, (str, int, float))
                 }

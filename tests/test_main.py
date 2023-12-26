@@ -31,6 +31,7 @@ def single_value_test(
     thing="esp32",
     context_0="room",
     timestamp=None,
+    msg_timestamp=None,
     called_once=True,
     no_context=False,
     msg_metric_prefix=None,
@@ -40,7 +41,9 @@ def single_value_test(
     if extra_tags is None:
         extra_tags = {}
     tsdb_mock = mock.MagicMock()
-    message = get_message(topic if msg_topic is None else msg_topic, message_value)
+    message = get_message(
+        topic if msg_topic is None else msg_topic, message_value, msg_timestamp
+    )
     process_items(
         [message],
         tsdb_mock,
@@ -174,6 +177,24 @@ class TestProcessItems(unittest.TestCase):
     def test_json_timestamp(self):
         single_value_test(
             '{"value": 25,"timestamp": 123456789}', 25, timestamp=123456789
+        )
+
+    def test_json_str_timestamp(self):
+        single_value_test(
+            '{"value": 25,"timestamp": "123456789"}', 25, timestamp=123456789
+        )
+
+    def test_json_float_timestamp(self):
+        single_value_test(
+            '{"value": 25,"timestamp": 123456789.4}', 25, timestamp=123456789.4
+        )
+
+    def test_incorrect_json_timestamp(self):
+        single_value_test(
+            '{"value": 25,"timestamp": "foo"}',
+            25,
+            timestamp=123456789,
+            msg_timestamp=123456789,
         )
 
     def test_json_topic_context(self):
