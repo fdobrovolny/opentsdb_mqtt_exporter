@@ -421,7 +421,7 @@ def process_items(
                             f"{local_metric_prefix}{tags[PROPERTY_KEY]}{STRING_LABEL_SUFFIX}",
                             1,
                             **tags,
-                            value=value,
+                            val=value,
                         )
                     else:
                         logger.error(
@@ -438,9 +438,7 @@ def process_items(
                     f"{local_metric_prefix}{tags[PROPERTY_KEY]}{STRING_LABEL_SUFFIX}",
                     1,
                     **tags,
-                    value=normalize_value(
-                        str(val_payload), topic_override, max_str_len
-                    ),
+                    val=normalize_value(str(val_payload), topic_override, max_str_len),
                 )
 
 

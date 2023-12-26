@@ -89,7 +89,7 @@ class TestProcessItems(unittest.TestCase):
         single_value_test(
             "hello world",
             1,
-            extra_tags={"value": "hello world"},
+            extra_tags={"val": "hello world"},
             metric_name_suffix="temperature_info",
             property_name="temperature",
         )
@@ -98,7 +98,7 @@ class TestProcessItems(unittest.TestCase):
         single_value_test(
             "a" * 129,
             1,
-            extra_tags={"value": "a" * 128},
+            extra_tags={"val": "a" * 128},
             metric_name_suffix="temperature_info",
             property_name="temperature",
         )
@@ -113,7 +113,7 @@ class TestProcessItems(unittest.TestCase):
         single_value_test(
             b"hello world",
             1,
-            extra_tags={"value": "hello world"},
+            extra_tags={"val": "hello world"},
             metric_name_suffix="temperature_info",
             property_name="temperature",
         )
@@ -128,7 +128,7 @@ class TestProcessItems(unittest.TestCase):
         single_value_test(
             b"\x00hello world\x00\x00\x00\x00\x00\x00\x00\x00\x00",
             1,
-            extra_tags={"value": "hello world"},
+            extra_tags={"val": "hello world"},
             metric_name_suffix="temperature_info",
             property_name="temperature",
         )
@@ -164,7 +164,7 @@ class TestProcessItems(unittest.TestCase):
         single_value_test(
             json.dumps({"value": "twenty_three_point_five"}),
             value=1,
-            extra_tags={"value": "twenty_three_point_five"},
+            extra_tags={"val": "twenty_three_point_five"},
             metric_name_suffix="temperature_info",
             property_name="temperature",
         )
@@ -376,7 +376,7 @@ class TestProcessItems(unittest.TestCase):
         single_value_test(
             '{"value":}',
             value=1,
-            extra_tags={"value": '{"value":}'},
+            extra_tags={"val": '{"value":}'},
             metric_name_suffix="temperature_info",
             property_name="temperature",
         )
@@ -437,7 +437,7 @@ class TestProcessItems(unittest.TestCase):
             },
             metric_name_suffix="temperature_indoor_info",
             property_name="temperature_indoor",
-            extra_tags={"value": "foo bar"},
+            extra_tags={"val": "foo bar"},
         )
 
     def test_json_list_multi_value_str_int(self):
@@ -997,7 +997,7 @@ class TestProcessItems(unittest.TestCase):
             msg_topic="dt/myapp/room/esp32/temperature",
             metric_name_suffix="temperature_indoor_info",
             property_name="temperature_indoor",
-            extra_tags={"value": "foo"},
+            extra_tags={"val": "foo"},
         )
 
     def test_metric_sub_values_dict_with_common_tags(self):
@@ -1041,7 +1041,7 @@ class TestProcessItems(unittest.TestCase):
             1,
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "foo"},
+            extra_tags={"val": "foo"},
         )
 
     def test_metric_values_list_int(self):
@@ -1074,7 +1074,7 @@ class TestProcessItems(unittest.TestCase):
             1,
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "foo"},
+            extra_tags={"val": "foo"},
         )
 
     def test_replacement_value_str_int(self):
@@ -1103,7 +1103,7 @@ class TestProcessItems(unittest.TestCase):
             },
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "bar"},
+            extra_tags={"val": "bar"},
         )
 
     def test_replacement_value_str_float(self):
@@ -1145,7 +1145,7 @@ class TestProcessItems(unittest.TestCase):
             },
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "bar"},
+            extra_tags={"val": "bar"},
         )
 
     def test_replacement_value_int_float(self):
@@ -1187,7 +1187,7 @@ class TestProcessItems(unittest.TestCase):
             },
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "bar"},
+            extra_tags={"val": "bar"},
         )
 
     def test_replacement_value_str_int_float(self):
@@ -1229,7 +1229,7 @@ class TestProcessItems(unittest.TestCase):
             },
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "bar"},
+            extra_tags={"val": "bar"},
         )
 
     def test_replacement_str_value_int_float(self):
@@ -1271,7 +1271,7 @@ class TestProcessItems(unittest.TestCase):
             },
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "bar"},
+            extra_tags={"val": "bar"},
         )
 
     def test_replacement_value_float_float(self):
@@ -1313,7 +1313,7 @@ class TestProcessItems(unittest.TestCase):
             },
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "bar"},
+            extra_tags={"val": "bar"},
         )
 
     def test_replacement_str_value_float_float(self):
@@ -1355,7 +1355,7 @@ class TestProcessItems(unittest.TestCase):
             },
             metric_name_suffix="temperature_info",
             property_name="temperature",
-            extra_tags={"value": "bar"},
+            extra_tags={"val": "bar"},
         )
 
     def test_replacement_value_str_float_float(self):
