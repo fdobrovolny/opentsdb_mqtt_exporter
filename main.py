@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -14,11 +15,24 @@ from paho.mqtt.client import topic_matches_sub
 
 # Regex to match MQTT topic structure
 TOPIC_MATCHER = re.compile(
-    r"^dt/(?P<app>[ \w-]+)/(?P<context>[ \w\-/]+)/(?P<thing>[ \w-]+)/(?P<property>[ \w-]+)(:(?P<sub_value>[ \w-]+))?$"
+    r"^dt/(?P<app>[ \w-]+)/(?P<context>[ \w\-/]+)/(?P<thing>[ \w-]+)/(?P<property>[ \w-]+)?$"
 )
 
 # Configure the logger
 logger = logging.getLogger(__name__)
+
+VALUES_KEY = "values"
+VALUE_KEY = "value"
+TIMESTAMP_KEY = "timestamp"
+EXTRA_TAGS_KEY = "extra_tags"
+VALUE_REPLACEMENT_KEY = "value_replacement"
+JSON_MULTI_VALUE_KEY = "json_multi_value"
+METRIC_PREFIX_KEY = "metric_prefix"
+PROPERTY_KEY = "property"
+TOPIC_KEY = "topic"
+
+STRING_LABEL_SUFFIX = "_info"
+DEFAULT_METRIC_PREFIX = "mqtt__"
 
 
 async def subscriber(
@@ -82,9 +96,9 @@ async def writer(
     override: Optional[Dict[str, Dict[str, Union[str, Dict[str, str]]]]] = None,
     max_time: int = 5,
     max_send_messages: int = 100,
-    metric_prefix: str = "mqtt__",
+    metric_prefix: str = DEFAULT_METRIC_PREFIX,
     max_str_len: int = 128,
-    tags_exclude: Set[str] = {"metric_prefix"},
+    tags_exclude: Optional[Set[str]] = None,
 ):
     """
     Asynchronously processes messages from a queue and sends them to TSDB.
@@ -98,6 +112,9 @@ async def writer(
     :param max_str_len: Maximum string length for TSDB tags.
     :param tags_exclude: Tags to be removed from TSDB data.
     """
+    if tags_exclude is None:
+        tags_exclude = {METRIC_PREFIX_KEY}
+
     time_limit = asyncio.get_event_loop().time() + max_time
 
     while True:
@@ -161,39 +178,125 @@ def sort_subs_by_specificity(topic: str, subs: List[str]) -> List[str]:
 
 
 def get_topic_override_config(
-    topic: str, override: Dict[str, Dict[str, Union[str, Dict[str, str]]]]
+    topic: Union[str, Tuple[str, str]],
+    override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
+    disable_cache: bool = False,
+    lru_cache_size: int = 10240,
 ):
     """
     Gets the override configuration for a topic.
 
     :param topic: Topic string.
     :param override: Dictionary for overriding topic metadata.
+    :param disable_cache: Disable the LRU cache.
+    :param lru_cache_size: Size of the LRU cache.
     :return: Override configuration for the topic.
+
+    :note: This function uses an LRU cache to speed up the lookup of the override configuration. The cache key is
+           generated from the topic and the `override_cache_key` parameter. You can clear the cache by calling
+           `get_topic_override_config.cache_clear()`. Or get the cache info by calling
+           `get_topic_override_config.cache_info()`.
     """
-    subs = list(override.keys())
-    subs = sort_subs_by_specificity(topic, subs)
 
-    output_override = {}
-    output_extra_tags = {}
+    if disable_cache or not hasattr(get_topic_override_config, "_get_override"):
 
-    for sub in subs:
-        sub_override = {**override.get(sub, {})}
-        output_extra_tags.update(sub_override.pop("extra_tags", {}))
-        output_override.update(sub_override)
+        def _get_override(topic):
+            output_override = {}
+            output_extra_tags = {}
+            output_value_replacement = {}
 
-    if len(output_extra_tags) > 0:
-        output_override["extra_tags"] = output_extra_tags
+            if isinstance(topic, tuple):
+                output_override = _get_override(topic[0])
+                output_extra_tags = output_override.pop(EXTRA_TAGS_KEY, {})
+                output_value_replacement = output_override.pop(
+                    VALUE_REPLACEMENT_KEY, {}
+                )
 
-    return output_override
+                sub_override = override.get(f"{topic[0]}:{topic[1]}", {})
+
+                if sub_override is None:
+                    # If the sub is set to None, reset the override
+                    return {}
+
+                sub_override_extra_tags = sub_override.pop(EXTRA_TAGS_KEY, {})
+                if sub_override_extra_tags is not None:
+                    output_extra_tags.update(sub_override_extra_tags)
+                else:
+                    # Reset extra tags if the sub has extra tags set to None
+                    output_extra_tags = {}
+
+                sub_value_replacement = sub_override.pop(VALUE_REPLACEMENT_KEY, {})
+                if sub_value_replacement is not None:
+                    output_value_replacement.update(sub_value_replacement)
+                else:
+                    # Reset value replacement if the sub has value replacement set to None
+                    output_value_replacement = {}
+
+                output_override.update(sub_override)
+
+            else:
+                subs = list(override.keys())
+                subs = sort_subs_by_specificity(topic, subs)
+
+                for sub in subs:
+                    sub_override_raw = override.get(sub, {})
+                    if sub_override_raw is None:
+                        # reset override if the sub has override set to None
+                        output_override = {}
+                        output_extra_tags = {}
+                        output_value_replacement = {}
+                        continue
+                    sub_override = {**sub_override_raw}  # Shallow copy of the dict
+
+                    sub_override_extra_tags = sub_override.pop(EXTRA_TAGS_KEY, {})
+                    if sub_override_extra_tags is not None:
+                        output_extra_tags.update(sub_override_extra_tags)
+                    else:
+                        # Reset extra tags if the sub has extra tags set to None
+                        output_extra_tags = {}
+
+                    sub_value_replacement = sub_override.pop(VALUE_REPLACEMENT_KEY, {})
+                    if sub_value_replacement is not None:
+                        output_value_replacement.update(sub_value_replacement)
+                    else:
+                        # Reset value replacement if the sub has value replacement set to None
+                        output_value_replacement = {}
+
+                    output_override.update(sub_override)
+
+            if len(output_extra_tags) > 0:
+                output_override[EXTRA_TAGS_KEY] = output_extra_tags
+
+            if len(output_value_replacement) > 0:
+                output_override[VALUE_REPLACEMENT_KEY] = output_value_replacement
+
+            return {k: v for k, v in output_override.items() if v is not None}
+
+        if disable_cache:
+            return _get_override(topic)
+
+        if not hasattr(get_topic_override_config, "_get_override"):
+            get_topic_override_config._get_override = functools.lru_cache(
+                maxsize=lru_cache_size, typed=True
+            )(_get_override)
+            get_topic_override_config.cache_clear = (
+                get_topic_override_config._get_override.cache_clear
+            )
+            get_topic_override_config.cache_info = (
+                get_topic_override_config._get_override.cache_info
+            )
+
+    return get_topic_override_config._get_override(topic)
 
 
 def process_items(
     items: List[Tuple[Message, float]],
     tsdb: TSDBClient,
     override: Optional[Dict[str, Dict[str, Union[str, Dict[str, str]]]]] = None,
-    metric_prefix: str = "mqtt__",
+    metric_prefix: str = DEFAULT_METRIC_PREFIX,
     max_str_len: int = 128,
-    tags_exclude: Set[str] = {"metric_prefix"},
+    tags_exclude: Set[str] = None,
+    disable_cache: bool = False,
 ):
     """
     Processes a batch of MQTT messages and sends data to TSDB.
@@ -204,7 +307,11 @@ def process_items(
     :param metric_prefix: Metric prefix.
     :param max_str_len: Maximum string length for TSDB tags.
     :param tags_exclude: Tags to be removed from TSDB data.
+    :param disable_cache: Disable the LRU cache.
     """
+    if tags_exclude is None:
+        tags_exclude = {METRIC_PREFIX_KEY}
+
     if override is None:
         override = {}
 
@@ -219,7 +326,9 @@ def process_items(
 
         values = [(topic, payload)]
 
-        topic_override = get_topic_override_config(topic, override)
+        topic_override = get_topic_override_config(
+            topic, override, disable_cache=disable_cache
+        )
 
         if (payload.startswith("{") and payload.endswith("}")) or (
             payload.startswith("[") and payload.endswith("]")
@@ -233,49 +342,51 @@ def process_items(
                 )
             else:
                 if isinstance(payload, dict):
-                    if isinstance(payload.get("values", None), dict):
+                    if isinstance(payload.get(VALUES_KEY, None), dict):
                         base_tags = {**payload}
-                        base_tags.pop("values")
+                        base_tags.pop(VALUES_KEY)
 
                         values = [
                             (
-                                f"{topic}:{k}",
+                                (topic, k),
                                 {**base_tags, **v}
                                 if isinstance(v, dict)
-                                else {**base_tags, "value": v},
+                                else {**base_tags, VALUE_KEY: v},
                             )
-                            for k, v in payload["values"].items()
+                            for k, v in payload[VALUES_KEY].items()
                         ]
-                    elif isinstance(payload.get("values", None), list):
+                    elif isinstance(payload.get(VALUES_KEY, None), list):
                         base_tags = {**payload}
-                        base_tags.pop("values")
+                        base_tags.pop(VALUES_KEY)
 
                         values = [
                             (
                                 topic,
                                 {**base_tags, **v}
                                 if isinstance(v, dict)
-                                else {**base_tags, "value": v},
+                                else {**base_tags, VALUE_KEY: v},
                             )
-                            for v in payload["values"]
+                            for v in payload[VALUES_KEY]
                         ]
                     else:
-                        if (
-                            override.get(topic, {}).get("json_multi_value", None)
-                            is True
-                        ):
+                        if topic_override.get(JSON_MULTI_VALUE_KEY, None) is True:
                             values = chain.from_iterable(
                                 [
-                                    [(f"{topic}:{k}", v)]
+                                    [((topic, k), v)]
                                     if not isinstance(v, list)
-                                    else [(f"{topic}:{k}", iv) for iv in v]
+                                    else [((topic, k), iv) for iv in v]
                                     for k, v in payload.items()
                                 ]
                             )
                         else:
                             values = [(topic, payload)]
                 elif isinstance(payload, list):
-                    values = [(topic, v) for v in payload]
+                    if topic_override.get(JSON_MULTI_VALUE_KEY, None) is True:
+                        values = chain.from_iterable(
+                            [[((topic, k), v) for k, v in iv.items()] for iv in payload]
+                        )
+                    else:
+                        values = [(topic, v) for v in payload]
                 else:
                     logger.debug(
                         f"Could not parse payload as JSON falling back to str: {payload}"
@@ -286,25 +397,31 @@ def process_items(
                 val_topic,
                 val_payload,
                 timestamp,
-                override,
-                topic_override,
+                (
+                    get_topic_override_config(
+                        val_topic, override, disable_cache=disable_cache
+                    )
+                    if isinstance(val_topic, tuple)
+                    else topic_override
+                ),
                 tags_exclude,
+                max_str_len=max_str_len,
             )
 
-            local_metric_prefix = tags.pop("metric_prefix", metric_prefix)
+            local_metric_prefix = tags.pop(METRIC_PREFIX_KEY, metric_prefix)
 
             if value is not None:
                 try:
                     if isinstance(value, (int, float)):
                         tsdb.send(
-                            f"{local_metric_prefix}{tags['property']}", value, **tags
+                            f"{local_metric_prefix}{tags[PROPERTY_KEY]}", value, **tags
                         )
                     elif isinstance(value, str):
                         tsdb.send(
-                            f"{local_metric_prefix}{tags['property']}_info",
+                            f"{local_metric_prefix}{tags[PROPERTY_KEY]}{STRING_LABEL_SUFFIX}",
                             1,
                             **tags,
-                            value=value[:max_str_len],
+                            value=value,
                         )
                     else:
                         logger.error(
@@ -318,126 +435,217 @@ def process_items(
             else:
                 # If value is None, send value as string as we were unable to parse it
                 tsdb.send(
-                    f"{local_metric_prefix}{tags['property']}_info",
+                    f"{local_metric_prefix}{tags[PROPERTY_KEY]}{STRING_LABEL_SUFFIX}",
                     1,
                     **tags,
-                    value=value[:max_str_len],
+                    value=normalize_value(
+                        str(val_payload), topic_override, max_str_len
+                    ),
                 )
 
 
 def extract_tags_and_value(
     topic: str,
-    payload: Union[str, bytes],
+    payload: str,
     timestamp: float,
-    override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
     topic_override: Dict[str, Union[str, Dict[str, str]]],
     tags_exclude: Set[str],
+    max_str_len: int = 128,
 ) -> Tuple[Dict[str, Union[str, int]], Optional[Union[int, float]]]:
     """
     Extracts tags and value from the topic and payload.
 
     :param topic: MQTT topic string.
-    :param payload: MQTT message payload.
+    :param payload: MQTT message payload or part of the payload specific to a single value.
     :param timestamp: Timestamp when the message was received.
-    :param override: Dictionary for overriding topic metadata.
     :param topic_override: Override configuration for the topic.
     :param tags_exclude: Tags to be removed from TSDB data.
+    :param max_str_len: Maximum string length for TSDB tags.
     :return: Tuple containing dictionary of tags and extracted value.
     """
-    payload_tags, value = extract_payload_tags_and_value(payload, tags_exclude)
-    tags = extract_tags(topic, override, topic_override)
+    payload_tags, value = extract_payload_tags_and_value(
+        payload, tags_exclude, topic_override, max_str_len
+    )
+    tags = extract_tags(topic, topic_override)
 
     # Merging payload tags with existing tags
     payload_tags.update(tags)
 
-    if "timestamp" not in payload_tags:
-        payload_tags["timestamp"] = int(timestamp)
-    else:
-        if isinstance(payload_tags["timestamp"], str):
-            try:
-                payload_tags["timestamp"] = int(payload_tags["timestamp"])
-            except ValueError:
-                try:
-                    payload_tags["timestamp"] = float(payload_tags["timestamp"])
-                except ValueError:
-                    logger.warning(
-                        f"Could not parse timestamp as number: {payload_tags['timestamp']}"
-                    )
-                    payload_tags["timestamp"] = int(timestamp)
-            except TypeError as e:
-                logger.warning(
-                    f"Could not parse timestamp as number {e}: {payload_tags['timestamp']}",
-                    exc_info=True,
-                )
-                payload_tags["timestamp"] = int(timestamp)
-        elif not isinstance(payload_tags["timestamp"], (int, float)):
-            logger.warning(
-                f"Could not parse timestamp as number: {payload_tags['timestamp']}"
-            )
-            payload_tags["timestamp"] = int(timestamp)
+    if payload_tags.get(TIMESTAMP_KEY, None) is None:
+        payload_tags[TIMESTAMP_KEY] = int(timestamp)
 
     return payload_tags, value
+
+
+def normalize_timestamp(
+    timestamp: Union[str, int, float]
+) -> Optional[Union[int, float]]:
+    """
+    Tries to parse the timestamp as a number.
+
+    :param timestamp: Timestamp when the message was received.
+    :return: Parsed timestamp or None if it could not be parsed.
+    """
+    if isinstance(timestamp, (int, float)):
+        return timestamp
+    elif isinstance(timestamp, str):
+        try:
+            return int(timestamp)
+        except ValueError:
+            try:
+                return float(timestamp)
+            except ValueError:
+                logger.warning(f"Could not parse timestamp as number: {timestamp}")
+                return None
+        except TypeError as e:
+            logger.warning(
+                f"Could not parse timestamp as number {e}: {timestamp}",
+                exc_info=True,
+            )
+            return None
+    else:
+        logger.warning(f"Could not parse timestamp as number: {timestamp}")
+        return None
 
 
 def extract_payload_tags_and_value(
     payload: Union[str, bytes, Dict[str, Union[str, int, float]]],
     tags_exclude: Set[str],
+    topic_override: Dict[str, Union[str, Dict[str, str]]],
+    max_str_len: int = 128,
 ) -> Tuple[Dict[str, str], Optional[Union[int, float, str]]]:
     """
     Extracts tags and value from the payload if it's JSON, otherwise tries to parse it as a number.
 
     :param payload: MQTT message payload.
     :param tags_exclude: Tags to be removed from TSDB data.
+    :param topic_override: Override configuration for the topic.
+    :param max_str_len: Maximum string length for TSDB tags.
     :return: Tuple containing dictionary of payload tags and extracted value.
     """
     payload_tags = {}
 
     if isinstance(payload, dict):
         try:
-            value = payload.pop("value", -1)
+            value = payload.pop(VALUE_KEY, -1)
 
             # Use remaining payload data as tags
             payload_tags.update(
                 {
-                    k: str(v) if k != "timestamp" else v
+                    k: str(v) if k != TIMESTAMP_KEY else normalize_timestamp(v)
                     for k, v in payload.items()
                     if isinstance(v, (str, int, float))
                     and k.lower() not in tags_exclude
                 }
             )
 
-            return payload_tags, normalize_value(value)
+            return payload_tags, normalize_value(value, topic_override, max_str_len)
         except ValueError:
             logger.debug(
                 f"Could not parse payload as JSON falling back to str: {payload}"
             )
             return {}, None
     else:
-        return payload_tags, normalize_value(payload)
+        return payload_tags, normalize_value(payload, topic_override, max_str_len)
 
 
-def normalize_value(value: Union[str, int, float]) -> Optional[Union[int, float, str]]:
+def find_value_replacement(
+    value: Union[str, int, float],
+    value_replacement_dict: Dict[Union[str, int, float], Union[str, int, float]],
+    max_str_len: int = 128,
+) -> Optional[Union[int, float, str]]:
+    """
+    Tries to find a value replacement for the given value.
+
+    :param value: MQTT message value or JSON value.
+    :param value_replacement_dict: Value replacement dictionary.
+    :param max_str_len: Maximum string length for TSDB tags.
+    :return:
+    """
+    if len(value_replacement_dict) > 0:
+        if isinstance(value, str):
+            if value[:max_str_len] in value_replacement_dict:
+                return value_replacement_dict[value[:max_str_len]]
+
+        if isinstance(value, (int, float)):
+            if value in value_replacement_dict:
+                return value_replacement_dict[value]
+            elif str(value) in value_replacement_dict:
+                return value_replacement_dict[str(value)]
+            elif (
+                isinstance(value, float)
+                and value == int(value)
+                and int(value) in value_replacement_dict
+            ):
+                return value_replacement_dict[int(value)]
+            elif (
+                isinstance(value, float)
+                and value == int(value)
+                and str(int(value)) in value_replacement_dict
+            ):
+                return value_replacement_dict[str(int(value))]
+            elif isinstance(value, int) and float(value) in value_replacement_dict:
+                return value_replacement_dict[float(value)]
+            elif isinstance(value, int) and str(float(value)) in value_replacement_dict:
+                return value_replacement_dict[str(float(value))]
+
+        if isinstance(value, bool):
+            if value in value_replacement_dict:
+                return value_replacement_dict[value]
+
+    return None
+
+
+def normalize_value(
+    value: Union[str, int, float, bool],
+    topic_override: Dict[str, Union[str, Dict[str, str]]],
+    max_str_len: int = 128,
+) -> Optional[Union[int, float, str]]:
     """
     Tries to parse the value as a number.
 
     :param value: MQTT message payload or JSON value.
+    :param topic_override: Override configuration for the topic.
+    :param max_str_len: Maximum string length for TSDB tags.
     :return: Parsed value or None if it could not be parsed.
     """
+    value_replacement_dict = topic_override.get(VALUE_REPLACEMENT_KEY, {})
+    was_replaced = False
+
+    if len(value_replacement_dict) > 0:
+        replacement_value = find_value_replacement(
+            value, value_replacement_dict, max_str_len
+        )
+        if replacement_value is not None:
+            if isinstance(replacement_value, (int, float, str, bool)):
+                value = replacement_value
+                was_replaced = True
+            else:
+                logger.warning(
+                    f"Could not parse replacement value!: {replacement_value}"
+                )
+                return -1
+
     if isinstance(value, (int, float)):
         return value
     try:
-        return int(value)
+        value = int(value)
     except ValueError:
         try:
-            return float(value)
+            value = float(value)
         except ValueError:
             if isinstance(value, str):
-                return value
-            logger.error(f"Could not parse payload as number or str: {value}")
+                return value[:max_str_len]
+            logger.warning(f"Could not parse payload as number or str: {value}")
             return -1
     except TypeError:
-        logger.error(f"Could not parse payload as number or str: {value}")
+        logger.warning(f"Could not parse payload as number or str: {value}")
         return -1
+
+    if was_replaced:
+        return value
+    else:
+        return normalize_value(value, topic_override, max_str_len)
 
 
 def generate_tags(
@@ -470,75 +678,66 @@ def generate_tags(
 
 
 def extract_tags(
-    topic: str,
-    override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
+    topic: Union[str, Tuple[str, str]],
     topic_override: Union[str, Dict[str, str]],
 ) -> Dict[str, str]:
     """
     Extracts and constructs tags from the topic and payload.
     :param topic: MQTT topic string.
-    :param override: Dictionary for overriding topic metadata.
     :param topic_override: Override configuration for the topic.
     :return: Dictionary of tags.
     """
-    if ":" in topic:
-        override_dict = {**topic_override, **override.get(topic, {})}
-        extra_tags = {
-            **topic_override.get("extra_tags", {}),
-            **override.get(topic, {}).get("extra_tags", {}),
-        }
-        if len(extra_tags) > 0:
-            override_dict["extra_tags"] = extra_tags
-    else:
-        override_dict = topic_override
-    topic_meta = TOPIC_MATCHER.match(topic)
+    topic_meta = TOPIC_MATCHER.match(topic[0] if isinstance(topic, tuple) else topic)
 
     # construct generated tags
     generated_tags = generate_tags(
-        ["app", "context", "thing"], override_dict, topic_meta
+        ["app", "context", "thing"], topic_override, topic_meta
     )
 
     if not topic_meta:
-        raw_topic = topic if ":" not in topic else topic.split(":")[0]
+        raw_topic = topic[0] if isinstance(topic, tuple) else topic
         property_tag = raw_topic.split("/")[-1].replace(" ", "_")
     else:
         property_tag = (
-            f"{topic_meta.group('property')}_{topic_meta.group('sub_value')}"
-            if topic_meta.group("sub_value")
-            else topic_meta.group("property")
+            f"{topic_meta.group(PROPERTY_KEY)}_{topic[1]}"
+            if isinstance(topic, tuple)
+            else topic_meta.group(PROPERTY_KEY)
         ).replace(" ", "_")
 
     tags = {
-        "topic": topic,
-        "property": override_dict.get("property", property_tag),
+        TOPIC_KEY: f"{topic[0]}:{topic[1]}" if isinstance(topic, tuple) else topic,
+        PROPERTY_KEY: topic_override.get(PROPERTY_KEY, property_tag),
         **generated_tags,
         **extract_context_tags(
-            override_dict.get(
+            topic_override.get(
                 "context", topic_meta.group("context") if topic_meta else None
             )
         ),
     }
 
-    if "extra_tags" in override_dict:
+    if EXTRA_TAGS_KEY in topic_override:
         tags.update(
             {
                 key: value
-                for key, value in override_dict["extra_tags"].items()
+                for key, value in topic_override[EXTRA_TAGS_KEY].items()
                 if value is not None
             }
         )
 
-    if "metric_prefix" in override_dict:
-        tags["metric_prefix"] = override_dict["metric_prefix"]
+    if METRIC_PREFIX_KEY in topic_override:
+        tags[METRIC_PREFIX_KEY] = topic_override[METRIC_PREFIX_KEY]
 
     return tags
 
 
-def extract_context_tags(context: Optional[str]) -> Dict[str, str]:
+def extract_context_tags(
+    context: Optional[str], key: str = "context"
+) -> Dict[str, str]:
     """
     Extracts context tags from the context string.
 
     :param context: Context string from the topic.
+    :param key: Key prefix for the context tags.
     :return: Dictionary of context tags.
     """
     if context is None:
@@ -548,9 +747,9 @@ def extract_context_tags(context: Optional[str]) -> Dict[str, str]:
     if "/" in context:
         context_data = context.split("/")
         for i, context_part in enumerate(context_data):
-            context_tags[f"context_{i}"] = context_part
+            context_tags[f"{key}_{i}"] = context_part
     else:
-        context_tags["context_0"] = context
+        context_tags[f"{key}_0"] = context
     return context_tags
 
 
@@ -674,8 +873,8 @@ def parse_args():
     parser.add_argument(
         "--metric_prefix",
         type=str,
-        default="mqtt__",
-        env_var="METRIC_PREFIX",
+        default=DEFAULT_METRIC_PREFIX,
+        env_var=METRIC_PREFIX_KEY,
         help="Metric prefix",
     )
     parser.add_argument(
@@ -695,7 +894,7 @@ def parse_args():
     parser.add_argument(
         "--tags_exclude",
         type=str,
-        default="metric_prefix",
+        default=METRIC_PREFIX_KEY,
         env_var="TAGS_EXCLUDE",
         help="Tags to be removed from TSDB data, comma separated list, case insensitive default: metric_prefix",
     )

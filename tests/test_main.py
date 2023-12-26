@@ -52,6 +52,7 @@ def single_value_test(
         metric_prefix=metric_prefix if msg_metric_prefix is None else msg_metric_prefix,
         max_str_len=max_str_len,
         tags_exclude={"metric_prefix"} if tags_exclude is None else tags_exclude,
+        disable_cache=True,
     )
     if no_context:
         context_values = {}
@@ -160,13 +161,24 @@ class TestProcessItems(unittest.TestCase):
         single_value_test(b"\x00\x00{}\x00\x00\x00\x00", -1)
 
     def test_json_payload_str(self):
-        # 'value' field in json payload as string instead of number
         single_value_test(
             json.dumps({"value": "twenty_three_point_five"}),
             value=1,
             extra_tags={"value": "twenty_three_point_five"},
             metric_name_suffix="temperature_info",
             property_name="temperature",
+        )
+
+    def test_json_payload_bool_true(self):
+        single_value_test(
+            json.dumps({"value": True}),
+            value=1,
+        )
+
+    def test_json_payload_bool_false(self):
+        single_value_test(
+            json.dumps({"value": False}),
+            value=0,
         )
 
     def test_json_additional_tags(self):
@@ -392,6 +404,62 @@ class TestProcessItems(unittest.TestCase):
             metric_name_suffix="temperature_indoor",
         )
 
+    def test_json_multi_value_str_int(self):
+        single_value_test(
+            '{"indoor": "25"}',
+            25,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            override={"dt/myapp/room/esp32/temperature": {"json_multi_value": True}},
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_json_multi_value_str_float(self):
+        single_value_test(
+            '{"indoor": "25.5"}',
+            25.5,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            override={"dt/myapp/room/esp32/temperature": {"json_multi_value": True}},
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_json_multi_value_str(self):
+        single_value_test(
+            '{"indoor": "foo bar"}',
+            1,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "json_multi_value": True,
+                }
+            },
+            metric_name_suffix="temperature_indoor_info",
+            property_name="temperature_indoor",
+            extra_tags={"value": "foo bar"},
+        )
+
+    def test_json_list_multi_value_str_int(self):
+        single_value_test(
+            '[{"indoor": "25"}]',
+            25,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            override={"dt/myapp/room/esp32/temperature": {"json_multi_value": True}},
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_json_list_multi_value_str_bool(self):
+        single_value_test(
+            '[{"indoor": true}]',
+            1,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            override={"dt/myapp/room/esp32/temperature": {"json_multi_value": True}},
+            metric_name_suffix="temperature_indoor",
+        )
+
     def test_json_multi_value_dict(self):
         single_value_test(
             '{"indoor": {"value": 25.5}}',
@@ -553,6 +621,64 @@ class TestProcessItems(unittest.TestCase):
             app="myapp2",
         )
 
+    def test_multi_subscription_override_app_removal(self):
+        single_value_test(
+            '{"value": 25}',
+            25,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "app": None,
+                },
+                "dt/myapp/room/esp32/+": {
+                    "app": "myapp3",
+                },
+            },
+        )
+
+    def test_multi_subscription_override_app_full_removal(self):
+        single_value_test(
+            '{"value": 25}',
+            25,
+            override={
+                "dt/myapp/room/esp32/temperature": None,
+                "dt/myapp/room/esp32/+": {
+                    "app": "myapp3",
+                },
+            },
+        )
+
+    def test_multi_subscription_values_override_app_removal(self):
+        single_value_test(
+            '{"values": {"indoor":{"value": 25}}}',
+            25,
+            override={
+                "dt/myapp/room/esp32/temperature:indoor": {
+                    "app": None,
+                },
+                "dt/myapp/room/esp32/+": {
+                    "app": "myapp3",
+                },
+            },
+            metric_name_suffix="temperature_indoor",
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+        )
+
+    def test_multi_subscription_values_override_app_full_removal(self):
+        single_value_test(
+            '{"values": {"indoor":{"value": 25}}}',
+            25,
+            override={
+                "dt/myapp/room/esp32/temperature:indoor": None,
+                "dt/myapp/room/esp32/+": {
+                    "app": "myapp3",
+                },
+            },
+            metric_name_suffix="temperature_indoor",
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+        )
+
     def test_multi_subscription_override_tags(self):
         single_value_test(
             '{"value": 25, "tag0": "value1", "tag1": "value1"}',
@@ -607,7 +733,7 @@ class TestProcessItems(unittest.TestCase):
             },
         )
 
-    def test_multi_subscription_override_tags_multivalue(self):
+    def test_multi_subscription_override_tags_sub_value(self):
         single_value_test(
             message_value='{"values": {"indoor": {"value": 25, "tag0": "value0"}}, "tag0": "value1","tag1": "value1", "tag2": "value1"}',
             value=25,
@@ -657,14 +783,112 @@ class TestProcessItems(unittest.TestCase):
             metric_name_suffix="temperature_indoor",
         )
 
-    def test_multi_subscription_override_value_removal(self):
+    def test_multi_subscription_override_extra_tag_removal(self):
+        single_value_test(
+            message_value='{"value": 25, "tag0": "value1","tag1": "value1"}',
+            value=25,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "extra_tags": {"tag1": None},
+                },
+                "dt/myapp/room/esp32/+": {
+                    "extra_tags": {"tag1": "value3"},
+                },
+            },
+            extra_tags={
+                "tag0": "value1",
+                "tag1": "value1",
+            },
+        )
+
+    def test_multi_subscription_override_value_extra_tags_removal(self):
+        single_value_test(
+            message_value='{"value": 25, "tag0": "value1","tag1": "value1"}',
+            value=25,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "extra_tags": None,
+                },
+                "dt/myapp/room/esp32/+": {
+                    "extra_tags": {"tag1": "value3"},
+                },
+            },
+            extra_tags={
+                "tag0": "value1",
+                "tag1": "value1",
+            },
+        )
+
+    def test_multi_subscription_override_value_extra_tags_full_removal(self):
+        single_value_test(
+            message_value='{"value": 25, "tag0": "value1","tag1": "value1"}',
+            value=25,
+            override={
+                "dt/myapp/room/esp32/temperature": None,
+                "dt/myapp/room/esp32/+": {
+                    "extra_tags": {"tag1": "value3"},
+                },
+            },
+            extra_tags={
+                "tag0": "value1",
+                "tag1": "value1",
+            },
+        )
+
+    def test_multi_subscription_override_sub_value_removal(self):
         single_value_test(
             message_value='{"values": {"indoor": {"value": 25, "tag0": "value0"}}, "tag0": "value1","tag1": "value1"}',
             value=25,
             override={
                 "dt/myapp/room/esp32/temperature:indoor": {
-                    "extra_tags": {"tag2": None},
+                    "extra_tags": {"tag2": None, "tag3": "value2"},
                 },
+                "dt/myapp/room/esp32/temperature": {
+                    "extra_tags": {
+                        "tag2": "value3",
+                        "tag3": "value3",
+                        "tag4": "value3",
+                    },
+                },
+            },
+            extra_tags={
+                "tag0": "value0",
+                "tag1": "value1",
+                "tag3": "value2",
+                "tag4": "value3",
+            },
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_multi_subscription_override_sub_value_extra_tags_removal(self):
+        single_value_test(
+            message_value='{"values": {"indoor": {"value": 25, "tag0": "value0"}}, "tag0": "value1","tag1": "value1"}',
+            value=25,
+            override={
+                "dt/myapp/room/esp32/temperature:indoor": {
+                    "extra_tags": None,
+                },
+                "dt/myapp/room/esp32/temperature": {
+                    "extra_tags": {"tag2": "value3"},
+                },
+            },
+            extra_tags={
+                "tag0": "value0",
+                "tag1": "value1",
+            },
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_multi_subscription_override_sub_value_extra_tags_full_removal(self):
+        single_value_test(
+            message_value='{"values": {"indoor": {"value": 25, "tag0": "value0"}}, "tag0": "value1","tag1": "value1"}',
+            value=25,
+            override={
+                "dt/myapp/room/esp32/temperature:indoor": None,
                 "dt/myapp/room/esp32/temperature": {
                     "extra_tags": {"tag2": "value3"},
                 },
@@ -727,6 +951,424 @@ class TestProcessItems(unittest.TestCase):
             '{"value": 25, "extra_tag": "foo"}',
             25,
             tags_exclude={"extra_tag"},
+        )
+
+    def test_metric_sub_values_dict_int(self):
+        single_value_test(
+            '{"values": {"indoor": 25}}',
+            25,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_metric_sub_values_dict_float(self):
+        single_value_test(
+            '{"values": {"indoor": 25.5}}',
+            25.5,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_metric_sub_values_dict_str_int(self):
+        single_value_test(
+            '{"values": {"indoor": "42"}}',
+            42,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_metric_sub_values_dict_str_float(self):
+        single_value_test(
+            '{"values": {"indoor": "42.5"}}',
+            42.5,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_metric_sub_values_dict_str(self):
+        single_value_test(
+            '{"values": {"indoor": "foo"}}',
+            1,
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            metric_name_suffix="temperature_indoor_info",
+            property_name="temperature_indoor",
+            extra_tags={"value": "foo"},
+        )
+
+    def test_metric_sub_values_dict_with_common_tags(self):
+        single_value_test(
+            '{"values": {"indoor":25}, "tag1": "value1"}',
+            25,
+            extra_tags={"tag1": "value1"},
+            topic="dt/myapp/room/esp32/temperature:indoor",
+            msg_topic="dt/myapp/room/esp32/temperature",
+            property_name="temperature_indoor",
+            metric_name_suffix="temperature_indoor",
+        )
+
+    def test_metric_sub_values_list_int(self):
+        single_value_test(
+            '{"values": [25]}',
+            25,
+        )
+
+    def test_metric_sub_values_list_float(self):
+        single_value_test(
+            '{"values": [25.5]}',
+            25.5,
+        )
+
+    def test_metric_sub_values_list_str_int(self):
+        single_value_test(
+            '{"values": ["25"]}',
+            25,
+        )
+
+    def test_metric_sub_values_list_str_float(self):
+        single_value_test(
+            '{"values": ["25.5"]}',
+            25.5,
+        )
+
+    def test_metric_sub_values_list_str(self):
+        single_value_test(
+            '{"values": ["foo"]}',
+            1,
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "foo"},
+        )
+
+    def test_metric_values_list_int(self):
+        single_value_test(
+            "[25]",
+            25,
+        )
+
+    def test_metric_values_list_float(self):
+        single_value_test(
+            "[25.5]",
+            25.5,
+        )
+
+    def test_metric_values_list_str_int(self):
+        single_value_test(
+            '["25"]',
+            25,
+        )
+
+    def test_metric_values_list_str_float(self):
+        single_value_test(
+            '["25.5"]',
+            25.5,
+        )
+
+    def test_metric_values_list_str(self):
+        single_value_test(
+            '["foo"]',
+            1,
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "foo"},
+        )
+
+    def test_replacement_value_str_int(self):
+        single_value_test(
+            '{"value": "foo"}',
+            42,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "foo": 42,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_str_str(self):
+        single_value_test(
+            '{"value": "foo"}',
+            1,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "foo": "bar",
+                    }
+                }
+            },
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "bar"},
+        )
+
+    def test_replacement_value_str_float(self):
+        single_value_test(
+            '{"value": "foo"}',
+            14.5,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "foo": 14.5,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_int_int(self):
+        single_value_test(
+            '{"value": 1}',
+            42,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        1: 42,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_int_str(self):
+        single_value_test(
+            '{"value": 2}',
+            1,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        2: "bar",
+                    }
+                }
+            },
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "bar"},
+        )
+
+    def test_replacement_value_int_float(self):
+        single_value_test(
+            '{"value": 1}',
+            14.5,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        1: 14.5,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_str_int_int(self):
+        single_value_test(
+            '{"value": 1}',
+            42,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "1": 42,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_str_int_str(self):
+        single_value_test(
+            '{"value": 2}',
+            1,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "2": "bar",
+                    }
+                }
+            },
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "bar"},
+        )
+
+    def test_replacement_value_str_int_float(self):
+        single_value_test(
+            '{"value": 1}',
+            14.5,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "1": 14.5,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_str_value_int_int(self):
+        single_value_test(
+            '{"value": "1"}',
+            42,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        1: 42,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_str_value_int_str(self):
+        single_value_test(
+            '{"value": "2"}',
+            1,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        2: "bar",
+                    }
+                }
+            },
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "bar"},
+        )
+
+    def test_replacement_str_value_int_float(self):
+        single_value_test(
+            '{"value": "1"}',
+            14.5,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        1: 14.5,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_float_int(self):
+        single_value_test(
+            '{"value": 2.5}',
+            42,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        2.5: 42,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_float_str(self):
+        single_value_test(
+            '{"value": 2.5}',
+            1,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        2.5: "bar",
+                    }
+                }
+            },
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "bar"},
+        )
+
+    def test_replacement_value_float_float(self):
+        single_value_test(
+            '{"value": 2.5}',
+            14.5,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        2.5: 14.5,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_str_value_float_int(self):
+        single_value_test(
+            '{"value": "2.5"}',
+            42,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        2.5: 42,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_str_value_float_str(self):
+        single_value_test(
+            '{"value": "2.5"}',
+            1,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        2.5: "bar",
+                    }
+                }
+            },
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "bar"},
+        )
+
+    def test_replacement_str_value_float_float(self):
+        single_value_test(
+            '{"value": "2.5"}',
+            14.5,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        2.5: 14.5,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_str_float_int(self):
+        single_value_test(
+            '{"value": 2.5}',
+            42,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "2.5": 42,
+                    }
+                }
+            },
+        )
+
+    def test_replacement_value_str_float_str(self):
+        single_value_test(
+            '{"value": 2.5}',
+            1,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "2.5": "bar",
+                    }
+                }
+            },
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+            extra_tags={"value": "bar"},
+        )
+
+    def test_replacement_value_str_float_float(self):
+        single_value_test(
+            '{"value": 2.5}',
+            14.5,
+            override={
+                "dt/myapp/room/esp32/temperature": {
+                    "value_replacement": {
+                        "2.5": 14.5,
+                    }
+                }
+            },
         )
 
 

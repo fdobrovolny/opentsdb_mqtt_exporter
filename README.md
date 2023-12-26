@@ -104,6 +104,10 @@ The last part of the topic will be used as the property name.
 * float
 * json
 * string
+* bool (Only in JSON format) - True = 1, False = 0 (can be overridden in the override config
+
+Message can be encoded binary with 0x00 padded around it (This can happen when sending a message from IoT devices
+using C, with message size set to buffer size instead of content size.).
 
 ### JSON
 
@@ -124,9 +128,12 @@ If `value` is not present `-1` will be used.
 
 ### String
 
-If a message is string and not a JSON, it will be converted to info metric (`<property>_info`) with the value of `1` and the message as the
+If a message is string and not a JSON, it will be converted to info metric (`<property>_info`) with the value of `1` and
+the message as the
 info label with user-configurable max length (default 128).
 
+If the value is string, but it is a valid number or float, it will be converted to a metric with the value of the
+number or float.
 
 ### Multiple values
 
@@ -147,7 +154,10 @@ info label with user-configurable max length (default 128).
     "indoor": {
       "value": 24.5,
       "extra_tag": "extra_value2"
-    }
+    },
+    "underground": 25.5,
+    "kitchen": "24",
+    "bedroom": "too hot"
   },
   "timestamp": 1589784000,
   "extra_tag2": "extra_value3"
@@ -161,7 +171,7 @@ key `dt/myapp/room/esp32/temperature:indoor`.
 
 The order of the tags applied if using values is following:
 
-* properties from main json body
+* properties from the main json body
 * properties from the value (`extra_tag` in the example above)
 * properties extracted from the topic name
 * properties from the override config
@@ -182,7 +192,10 @@ records:
     {
       "value": 24.5,
       "extra_tag": "extra_value2"
-    }
+    },
+    25,
+    "24.5",
+    "foo bar"
   ],
   "timestamp": 1589784000,
   "extra_tag2": "extra_value3"
@@ -197,12 +210,13 @@ be `dt/myapp/room/esp32/temperature`. This enables to send in messages in the fo
 ```json
 {
   "indoor": 23.5,
-  "outdoor": 24,
+  "outdoor": "24",
   "underground": {
     "value": 25.5,
     "timestamp": 1589782000,
     "extra_tag": "extra_value"
-  }
+  },
+  "kitchen": "too hot"
 }
 ```
 
@@ -217,7 +231,21 @@ be `dt/myapp/room/esp32/temperature`. This enables to send in messages in the fo
   },
   {
     "value": 24.5,
-    "extra_tag": "extra_value2"
+    "extra_tag2": "extra_value2"
+  }
+]
+```
+
+##### Using a list without `value` key
+
+```json
+[
+  {
+    "indoor": 23.5
+  },
+  {
+    "outdoor": 24.5,
+    "kitchen": "too hot"
   }
 ]
 ```
@@ -246,6 +274,8 @@ It can be used to override or set the following:
 * `is_json_multi_value` - if the message is a dictionary with multiple values
   see [Using a dictionary without `values` key](#using-a-dictionary-without-values-key)
 * `metric_prefix` - Override the global metric prefix
+* `value_replacement` - a dictionary of values to replace the value with follows same rules as
+  extra_tags. See [Example with value removal](#example-with-value-removal)
 
 The key in the override config is the topic name. The value is a dictionary with the keys above.
 The key can be in a format of `dt/myapp/room/esp32/temperature:indoor` to override the property name for a specific
@@ -263,6 +293,16 @@ dt/myapp/room/esp32/temperature:
   extra_tags:
     extra_tag: extra_value
     extra_tag2: extra_value2
+  value_replacement:
+    "too hot": 100
+    15: "too cold"
+    False: "-1"
+    42: True
+    15.5: "still too cold"
+    "43": False
+    "3.14": "pi"
+    11: "12.5"
+    10: "11"
   is_json_multi_value: true
 ```
 
@@ -339,7 +379,7 @@ Resulting tags:
 * `extra_tag5=extra_value5`
 * `extra_tag6=extra_value6`
 
-### Example with wildcards and value removal
+### Example with value removal
 
 Sometimes you want to hardcode a value for a specific topic, but you don't want to hardcode it for all topics that
 match. In this case you can use `null` value in the override config. This will remove the value from the override and
@@ -375,3 +415,27 @@ Resulting tags:
 * `extra_tag0=extra_value0`
 * `extra_tag1=extra_value1`
 * `extra_tag2=extra_value0`
+
+All the following configurations will result in the same tags as above:
+
+```yaml
+dt/myapp/room/esp32/temperature:indoor:
+  extra_tags: null
+dt/myapp/room/esp32/temperature:
+  extra_tags:
+    extra_tag2: extra_value3
+```
+
+```yaml
+dt/myapp/room/esp32/temperature:indoor: null
+dt/myapp/room/esp32/temperature:
+  extra_tags:
+    extra_tag2: extra_value3
+```
+
+```yaml
+dt/myapp/room/esp32/temperature: null
+dt/myapp/room/esp32/+:
+  extra_tags:
+    extra_tag2: extra_value3
+```
