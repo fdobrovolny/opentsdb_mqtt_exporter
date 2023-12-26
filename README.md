@@ -97,6 +97,9 @@ The last part of the topic will be used as the property name.
 * int
 * float
 * json
+* string
+
+### JSON
 
 JSON has to be in the following format:
 
@@ -112,6 +115,12 @@ The `timestamp` field is optional. If not present, the current timestamp will be
 The `extra_tag` field is optional. If present, it will be added to the tags of the metric. It can be any key value pair
 as long as the key is a string, and the value is a string, number or float.
 If `value` is not present `-1` will be used.
+
+### String
+
+If a message is string and not a JSON, it will be converted to info metric (`<property>_info`) with the value of `1` and the message as the
+info label with user-configurable max length (default 128).
+
 
 ### Multiple values
 
@@ -212,7 +221,7 @@ be `dt/myapp/room/esp32/temperature`. This enables to send in messages in the fo
 The metric name will be composed as follows:
 
 ```
-<metric_prefix>(<property>(_<sub_value_name>)?|<override_config['property']>)
+<metric_prefix>(<property>(_<sub_value_name>)?|<override_config['property']>)(_info)?
 ```
 
 ## Override config

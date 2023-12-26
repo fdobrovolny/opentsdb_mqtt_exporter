@@ -35,6 +35,7 @@ def single_value_test(
     no_context=False,
     msg_metric_prefix=None,
     metric_prefix="mqtt_exp__",
+    max_str_len=128,
 ):
     if extra_tags is None:
         extra_tags = {}
@@ -45,6 +46,7 @@ def single_value_test(
         tsdb_mock,
         override=override if override is not None else {},
         metric_prefix=metric_prefix if msg_metric_prefix is None else msg_metric_prefix,
+        max_str_len=max_str_len,
     )
     if no_context:
         context_values = {}
@@ -71,11 +73,29 @@ def single_value_test(
 
 
 class TestProcessItems(unittest.TestCase):
-    def test_basic_int(self):
+    def test_int(self):
         single_value_test("25", 25)
 
-    def test_basic_float(self):
+    def test_float(self):
         single_value_test("25.5", 25.5)
+
+    def test_string(self):
+        single_value_test(
+            "hello world",
+            1,
+            extra_tags={"value": "hello world"},
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+        )
+
+    def test_string_max_len(self):
+        single_value_test(
+            "a" * 129,
+            1,
+            extra_tags={"value": "a" * 128},
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+        )
 
     def test_binary_int(self):
         single_value_test(b"25", 25)
@@ -83,11 +103,29 @@ class TestProcessItems(unittest.TestCase):
     def test_binary_float(self):
         single_value_test(b"25.5", 25.5)
 
+    def test_binary_string(self):
+        single_value_test(
+            b"hello world",
+            1,
+            extra_tags={"value": "hello world"},
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+        )
+
     def test_binary_int_padded(self):
         single_value_test(b"\x0025\x00\x00\x00\x00", 25)
 
     def test_binary_float_padded(self):
         single_value_test(b"\x0025.5\x00\x00\x00\x00", 25.5)
+
+    def test_binary_string_padded(self):
+        single_value_test(
+            b"\x00hello world\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            1,
+            extra_tags={"value": "hello world"},
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+        )
 
     def test_json_int(self):
         single_value_test('{"value": 25}', 25)
@@ -115,6 +153,16 @@ class TestProcessItems(unittest.TestCase):
 
     def test_json_empty_padded(self):
         single_value_test(b"\x00\x00{}\x00\x00\x00\x00", -1)
+
+    def test_json_payload_str(self):
+        # 'value' field in json payload as string instead of number
+        single_value_test(
+            json.dumps({"value": "twenty_three_point_five"}),
+            value=1,
+            extra_tags={"value": "twenty_three_point_five"},
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
+        )
 
     def test_json_additional_tags(self):
         single_value_test(
@@ -282,18 +330,20 @@ class TestProcessItems(unittest.TestCase):
             no_context=True,
         )
 
-    def test_incorrect_json_payload_str(self):
-        # 'value' field in json payload as string instead of number
-        single_value_test(
-            json.dumps({"value": "twenty_three_point_five"}),
-            value=-1,
-        )
-
     def test_incorrect_json_payload_dict(self):
         # 'value' field in json payload as string instead of number
         single_value_test(
             json.dumps({"value": {"key": "value"}}),
             value=-1,
+        )
+
+    def test_incorrect_json(self):
+        single_value_test(
+            '{"value":}',
+            value=1,
+            extra_tags={"value": '{"value":}'},
+            metric_name_suffix="temperature_info",
+            property_name="temperature",
         )
 
     def test_topic_name_padded(self):

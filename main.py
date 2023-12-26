@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from itertools import chain
-from typing import List, Tuple, Dict, Optional, Union, Any
+from typing import List, Tuple, Dict, Optional, Union
 
 import configargparse
 import yaml
@@ -83,6 +83,7 @@ async def writer(
     max_time: int = 5,
     max_send_messages: int = 100,
     metric_prefix: str = "mqtt__",
+    max_str_len: int = 128,
 ):
     """
     Asynchronously processes messages from a queue and sends them to TSDB.
@@ -115,7 +116,7 @@ async def writer(
 
         if len(items_to_process) > 0:
             logger.debug(f"Processing {len(items_to_process)} items")
-            process_items(items_to_process, tsdb, override, metric_prefix)
+            process_items(items_to_process, tsdb, override, metric_prefix, max_str_len)
 
         if (time_limit - asyncio.get_event_loop().time()) < 0.1:
             time_limit = asyncio.get_event_loop().time() + max_time
@@ -181,6 +182,7 @@ def process_items(
     tsdb: TSDBClient,
     override: Optional[Dict[str, Dict[str, Union[str, Dict[str, str]]]]] = None,
     metric_prefix: str = "mqtt__",
+    max_str_len: int = 128,
 ):
     """
     Processes a batch of MQTT messages and sends data to TSDB.
@@ -211,54 +213,60 @@ def process_items(
         ):
             try:
                 payload = json.loads(payload)
-            except ValueError:
-                logger.error(f"Could not parse payload as JSON: {payload}")
-                continue
-
-            if isinstance(payload, dict):
-                if isinstance(payload.get("values", None), dict):
-                    base_tags = {**payload}
-                    base_tags.pop("values")
-
-                    values = [
-                        (
-                            f"{topic}:{k}",
-                            {**base_tags, **v}
-                            if isinstance(v, dict)
-                            else {**base_tags, "value": v},
-                        )
-                        for k, v in payload["values"].items()
-                    ]
-                elif isinstance(payload.get("values", None), list):
-                    base_tags = {**payload}
-                    base_tags.pop("values")
-
-                    values = [
-                        (
-                            topic,
-                            {**base_tags, **v}
-                            if isinstance(v, dict)
-                            else {**base_tags, "value": v},
-                        )
-                        for v in payload["values"]
-                    ]
-                else:
-                    if override.get(topic, {}).get("json_multi_value", None) is True:
-                        values = chain.from_iterable(
-                            [
-                                [(f"{topic}:{k}", v)]
-                                if not isinstance(v, list)
-                                else [(f"{topic}:{k}", iv) for iv in v]
-                                for k, v in payload.items()
-                            ]
-                        )
-                    else:
-                        values = [(topic, payload)]
-            elif isinstance(payload, list):
-                values = [(topic, v) for v in payload]
+            except ValueError as e:
+                logger.debug(
+                    f"Could not parse payload as JSON falling back to str '{e}' : {payload}",
+                    exc_info=True,
+                )
             else:
-                logger.error(f"Could not parse payload as JSON: {payload}")
-                continue
+                if isinstance(payload, dict):
+                    if isinstance(payload.get("values", None), dict):
+                        base_tags = {**payload}
+                        base_tags.pop("values")
+
+                        values = [
+                            (
+                                f"{topic}:{k}",
+                                {**base_tags, **v}
+                                if isinstance(v, dict)
+                                else {**base_tags, "value": v},
+                            )
+                            for k, v in payload["values"].items()
+                        ]
+                    elif isinstance(payload.get("values", None), list):
+                        base_tags = {**payload}
+                        base_tags.pop("values")
+
+                        values = [
+                            (
+                                topic,
+                                {**base_tags, **v}
+                                if isinstance(v, dict)
+                                else {**base_tags, "value": v},
+                            )
+                            for v in payload["values"]
+                        ]
+                    else:
+                        if (
+                            override.get(topic, {}).get("json_multi_value", None)
+                            is True
+                        ):
+                            values = chain.from_iterable(
+                                [
+                                    [(f"{topic}:{k}", v)]
+                                    if not isinstance(v, list)
+                                    else [(f"{topic}:{k}", iv) for iv in v]
+                                    for k, v in payload.items()
+                                ]
+                            )
+                        else:
+                            values = [(topic, payload)]
+                elif isinstance(payload, list):
+                    values = [(topic, v) for v in payload]
+                else:
+                    logger.debug(
+                        f"Could not parse payload as JSON falling back to str: {payload}"
+                    )
 
         for val_topic, val_payload in values:
             tags, value = extract_tags_and_value(
@@ -269,9 +277,34 @@ def process_items(
 
             if value is not None:
                 try:
-                    tsdb.send(f"{local_metric_prefix}{tags['property']}", value, **tags)
+                    if isinstance(value, (int, float)):
+                        tsdb.send(
+                            f"{local_metric_prefix}{tags['property']}", value, **tags
+                        )
+                    elif isinstance(value, str):
+                        tsdb.send(
+                            f"{local_metric_prefix}{tags['property']}_info",
+                            1,
+                            **tags,
+                            value=value[:max_str_len],
+                        )
+                    else:
+                        logger.error(
+                            f"Could not parse payload as number or string on topic {topic}: {value}"
+                        )
                 except Exception as e:
-                    logger.error(f"Error processing item: {e}", exc_info=True)
+                    logger.error(
+                        f"Error processing item '{value}' on topic {topic}: {e}",
+                        exc_info=True,
+                    )
+            else:
+                # If value is None, send value as string as we were unable to parse it
+                tsdb.send(
+                    f"{local_metric_prefix}{tags['property']}_info",
+                    1,
+                    **tags,
+                    value=value[:max_str_len],
+                )
 
 
 def extract_tags_and_value(
@@ -294,9 +327,6 @@ def extract_tags_and_value(
     payload_tags, value = extract_payload_tags_and_value(payload)
     tags = extract_tags(topic, override, topic_override)
 
-    if tags is None:
-        return {}, None
-
     # Merging payload tags with existing tags
     payload_tags.update(tags)
 
@@ -308,7 +338,7 @@ def extract_tags_and_value(
 
 def extract_payload_tags_and_value(
     payload: Union[str, bytes, Dict[str, Union[str, int, float]]]
-) -> Tuple[Dict[str, str], Optional[Union[int, float]]]:
+) -> Tuple[Dict[str, str], Optional[Union[int, float, str]]]:
     """
     Extracts tags and value from the payload if it's JSON, otherwise tries to parse it as a number.
 
@@ -332,13 +362,15 @@ def extract_payload_tags_and_value(
 
             return payload_tags, normalize_value(value)
         except ValueError:
-            logger.error(f"Could not parse payload as JSON: {payload}")
+            logger.debug(
+                f"Could not parse payload as JSON falling back to str: {payload}"
+            )
             return {}, None
     else:
         return payload_tags, normalize_value(payload)
 
 
-def normalize_value(value: Union[str, int, float]) -> Optional[Union[int, float]]:
+def normalize_value(value: Union[str, int, float]) -> Optional[Union[int, float, str]]:
     """
     Tries to parse the value as a number.
 
@@ -353,10 +385,12 @@ def normalize_value(value: Union[str, int, float]) -> Optional[Union[int, float]
         try:
             return float(value)
         except ValueError:
-            logger.error(f"Could not parse payload as number: {value}")
+            if isinstance(value, str):
+                return value
+            logger.error(f"Could not parse payload as number or str: {value}")
             return -1
     except TypeError:
-        logger.error(f"Could not parse payload as number: {value}")
+        logger.error(f"Could not parse payload as number or str: {value}")
         return -1
 
 
@@ -393,7 +427,7 @@ def extract_tags(
     topic: str,
     override: Dict[str, Dict[str, Union[str, Dict[str, str]]]],
     topic_override: Union[str, Dict[str, str]],
-) -> Optional[Dict[str, str]]:
+) -> Dict[str, str]:
     """
     Extracts and constructs tags from the topic and payload.
     :param topic: MQTT topic string.
@@ -605,6 +639,13 @@ def parse_args():
         env_var="VICTORIA_METRICS",
         help="Use VictoriaMetrics instead of OpenTSDB, does not return detail data. bool value, default: False",
     )
+    parser.add_argument(
+        "--max_str_len",
+        type=int,
+        default=128,
+        env_var="MAX_STR_LEN",
+        help="Maximum string length for TSDB tags, default: 128",
+    )
 
     return parser.parse_args()
 
@@ -696,6 +737,7 @@ async def main():
                 args.max_time,
                 args.max_send_messages,
                 args.metric_prefix,
+                args.max_str_len,
             ),
         )
     except MqttError as e:
